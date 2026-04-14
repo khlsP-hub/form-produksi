@@ -1,0 +1,29 @@
+# dependencies
+node_modules/
+
+# secrets 🔥
+serviceAccountKey.json
+.env
+
+# Expo / React Native
+.expo/
+.expo-shared/
+dist/
+web-build/
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Android / build
+android/
+*.apk
+*.aab
+
+# misc
+*.log

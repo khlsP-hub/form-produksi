@@ -2,7 +2,7 @@
   "expo": {
     "name": "Form Masalah Produksi",
     "slug": "form-masalah-produksi",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -22,6 +22,15 @@
     "web": {
       "favicon": "./assets/icon.png"
     },
+
+    // 🔥 TAMBAHAN INI
+    "updates": {
+      "url": "https://u.expo.dev/88fdd06c-ccef-4906-a359-4309a8241ece"
+    },
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
+
     "plugins": [
       "expo-font"
     ],

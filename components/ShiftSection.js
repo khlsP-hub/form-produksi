@@ -5,8 +5,10 @@ import AppInput from './AppInput';
 import AppDropdown from './AppDropdown';
 import { Ionicons } from '@expo/vector-icons';
 import { STATUS_OPTIONS, createEmptyShiftRow, formatAngka, unformatAngka } from '../data/masterData';
+import SearchableDropdown from './SearchableDropdown';
+import DowntimePicker from './DowntimePicker';
 
-export default function ShiftSection({ shiftNumber, data, onChange }) {
+export default function ShiftSection({ shiftNumber, data, onChange, karuList = [], asistenList = [] }) {
 
   const updateField = (field, value) => onChange({ ...data, [field]: value });
 
@@ -79,12 +81,17 @@ export default function ShiftSection({ shiftNumber, data, onChange }) {
         </View>
 
         {/* ── Baris 2: Karu (full width) ── */}
-        <AppInput
+        <SearchableDropdown
           label="Nama Karu"
-          value={data.karu}
-          onChangeText={(v) => updateField('karu', v)}
-          placeholder="Masukkan nama kepala regu"
-        />
+          options={karuList}
+          value={data.karu || ''}
+          onChange={(val) => updateField('karu', val)}
+          placeholder={
+            karuList.length === 0
+              ? 'Belum ada data karu'
+              : 'Pilih nama karu...'
+         }
+      />
 
         {/* ── Divider ── */}
         <View style={styles.divider} />
@@ -107,12 +114,10 @@ export default function ShiftSection({ shiftNumber, data, onChange }) {
             </View>
 
             {/* Downtime */}
-            <AppInput
-              label="Downtime (menit)"
+            <DowntimePicker
+             label="Downtime"
               value={row.downtime}
-              onChangeText={(v) => updateRow(index, 'downtime', v)}
-              placeholder="Contoh: 30"
-              keyboardType="numeric"
+              onChange={(val) => updateRow(index, 'downtime', val)}
             />
 
             {/* Permasalahan */}
@@ -147,12 +152,18 @@ export default function ShiftSection({ shiftNumber, data, onChange }) {
             {/* Nama Asisten + Status berdampingan */}
             <View style={styles.row2}>
               <View style={{ flex: 3 }}>
-                <AppInput
+                <SearchableDropdown
                   label="Nama Asisten"
-                  value={row.namaAsisten}
-                  onChangeText={(v) => updateRow(index, 'namaAsisten', v)}
-                  placeholder="Nama asisten"
+                  options={asistenList}
+                  value={row.namaAsisten || ''}
+                  onChange={(val) => updateRow(index, 'namaAsisten', val)}
+                  placeholder={
+                    asistenList.length === 0
+                      ? 'Belum ada data asisten'
+                      : 'Pilih nama asisten...'
+                  }
                 />
+                
               </View>
               <View style={{ flex: 2 }}>
                 <AppDropdown

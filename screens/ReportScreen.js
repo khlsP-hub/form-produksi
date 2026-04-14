@@ -2,13 +2,13 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  ActivityIndicator, RefreshControl, Modal, TextInput, FlatList,
+  ActivityIndicator, RefreshControl, Modal, TextInput, FlatList, Alert
 } from 'react-native';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { Ionicons } from '@expo/vector-icons';
 import DatePickerInput from '../components/DatePickerInput';
-import { NOMOR_MESIN } from '../data/masterData';
+import { NOMOR_MESIN, BAGIAN_PRODUKSI } from '../data/masterData';
 
 // ─── Helpers tanggal ──────────────────────────────────────────────────────────
 const pad  = (n) => String(n).padStart(2, '0');
@@ -123,6 +123,23 @@ function extractMesins(docs) {
   docs.forEach(d=>{if(d.noMesin?.trim())set.add(d.noMesin.trim());});
   NOMOR_MESIN.forEach(m=>{if(m.value)set.add(m.value);});
   return [...set].sort();
+}
+
+// ─── Fetch asisten dari master_karyawan Firestore ─────────────────────────────
+async function fetchAsistenByBagian(bagian) {
+  if (!bagian) return [];
+  try {
+    const q = query(
+      collection(db, 'master_karyawan'),
+      where('bagian', '==', bagian),
+      where('role', '==', 'asisten')
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map(d => d.data().nama).filter(Boolean).sort();
+  } catch (e) {
+    console.error('fetchAsistenByBagian error:', e);
+    return [];
+  }
 }
 
 function buildMesinData(docs, noMesin) {
@@ -621,13 +638,31 @@ function IndividualPanel({ allDocs, initRangeDocs }) {
   const today=new Date(), weekAgo=new Date(today); weekAgo.setDate(today.getDate()-6);
   const [fromDate,setFromDate]=useState(fmtD(weekAgo));
   const [toDate,setToDate]=useState(fmtD(today));
+  const [bagian,setBagian]=useState('');                    // ← BARU
   const [asisten,setAsisten]=useState('');
   const [loading,setLoading]=useState(false);
   const [rangeDocs,setRangeDocs]=useState(initRangeDocs);
   const [searched,setSearched]=useState(false);
   const [showPicker,setShowPicker]=useState(false);
+  const [karyawanList,setKaryawanList]=useState([]);        // ← BARU
+  const [karyawanLoading,setKaryawanLoading]=useState(false); // ← BARU
 
-  const knownAsistens=useMemo(()=>extractAsistens([...allDocs,...rangeDocs]),[allDocs,rangeDocs]);
+  // ← BARU: fetch asisten dari Firestore saat bagian dipilih
+  useEffect(()=>{
+    if (!bagian) { setKaryawanList([]); setAsisten(''); return; }
+    setKaryawanLoading(true);
+    setAsisten('');
+    fetchAsistenByBagian(bagian)
+      .then(list => setKaryawanList(list))
+      .finally(() => setKaryawanLoading(false));
+  },[bagian]);
+
+  // Fallback: gabungkan dengan nama dari form yang sudah tersimpan
+  const knownAsistens=useMemo(()=>{
+    if (karyawanList.length > 0) return karyawanList;
+    return extractAsistens([...allDocs,...rangeDocs]);
+  },[karyawanList,allDocs,rangeDocs]);
+
   const points=useMemo(()=>(!searched||!asisten.trim())?[]:buildAsistenData(rangeDocs,asisten.trim()),[rangeDocs,asisten,searched]);
 
   const handleSearch=useCallback(async()=>{
@@ -649,13 +684,26 @@ function IndividualPanel({ allDocs, initRangeDocs }) {
       <View style={ap.filterCard}>
         <View style={ap.filterHeader}><Ionicons name="person-outline" size={15} color="#1565C0"/><Text style={ap.filterTitle}>Lihat Reject Per Asisten</Text></View>
         <DateRangeRow fromDate={fromDate} toDate={toDate} onFromChange={setFromDate} onToChange={setToDate}/>
+
+        {/* ← BARU: Pilih Bagian Produksi */}
+        <Text style={ap.fieldLabel}>Bagian Produksi</Text>
+        <View style={ap.bagianRow}>
+          {BAGIAN_PRODUKSI.map(b=>(
+            <TouchableOpacity key={b.value} style={[ap.bagianBtn, bagian===b.value && ap.bagianBtnActive]} onPress={()=>setBagian(b.value)}>
+              <Text style={[ap.bagianBtnTxt, bagian===b.value && ap.bagianBtnTxtActive]}>{b.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
         <Text style={ap.fieldLabel}>Nama Asisten *</Text>
-        <TouchableOpacity style={[ap.selector,asisten&&ap.selectorFilled]} onPress={()=>setShowPicker(true)} activeOpacity={0.8}>
+        <TouchableOpacity style={[ap.selector,asisten&&ap.selectorFilled]} onPress={()=>{ if(!bagian){Alert.alert('Pilih bagian produksi dulu');return;} setShowPicker(true);}} activeOpacity={0.8}>
           <Ionicons name="person-outline" size={15} color={asisten?'#1565C0':'#bbb'}/>
-          <Text style={[ap.selectorTxt,asisten&&ap.selectorTxtFilled]} numberOfLines={1}>{asisten||'Pilih atau cari nama asisten...'}</Text>
-          <Ionicons name="chevron-down" size={14} color="#bbb"/>
+          <Text style={[ap.selectorTxt,asisten&&ap.selectorTxtFilled]} numberOfLines={1}>
+            {karyawanLoading ? 'Memuat asisten...' : asisten || (bagian ? 'Pilih nama asisten...' : 'Pilih bagian dulu...')}
+          </Text>
+          {karyawanLoading ? <ActivityIndicator size="small" color="#1565C0"/> : <Ionicons name="chevron-down" size={14} color="#bbb"/>}
         </TouchableOpacity>
-        {!asisten&&knownAsistens.length===0&&<Text style={ap.hint}>Belum ada data asisten. Pastikan form sudah diisi.</Text>}
+
         <ActionBtn label="Tampilkan Laporan" icon="search" onPress={handleSearch} disabled={!asisten.trim()||loading} loading={loading}/>
       </View>
 
@@ -674,8 +722,6 @@ function IndividualPanel({ allDocs, initRangeDocs }) {
             </View>
             <TrendBadge trend={stats?.trend}/>
           </View>
-
-          {/* REDESIGNED stats row */}
           <View style={sc.summaryWrapper}>
             <View style={sc.row}>
               <SummaryStatCard num={stats.count} label="Shift Dikerjakan" accentColor="#185FA5" bgColor="#E6F1FB" iconName="time-outline" footer="Total shift tercatat"/>
@@ -692,9 +738,7 @@ function IndividualPanel({ allDocs, initRangeDocs }) {
               </View>
             )}
           </View>
-
           <AsitenChart points={points}/>
-
           <View style={ap.detailHeader}><Text style={ap.detailTitle}>Detail per Shift ({points.length} shift)</Text></View>
           {points.map((p,i)=><AsistenPointCard key={i} point={p}/>)}
         </>
@@ -710,13 +754,30 @@ function BandingkanPanel({ allDocs, initRangeDocs }) {
   const today=new Date(), weekAgo=new Date(today); weekAgo.setDate(today.getDate()-6);
   const [fromDate,setFromDate]=useState(fmtD(weekAgo));
   const [toDate,setToDate]=useState(fmtD(today));
+  const [bagian,setBagian]=useState('');                      // ← BARU
   const [selected,setSelected]=useState([]);
   const [loading,setLoading]=useState(false);
   const [rangeDocs,setRangeDocs]=useState(initRangeDocs);
   const [searched,setSearched]=useState(false);
   const [showPicker,setShowPicker]=useState(false);
+  const [karyawanList,setKaryawanList]=useState([]);          // ← BARU
+  const [karyawanLoading,setKaryawanLoading]=useState(false); // ← BARU
 
-  const knownAsistens=useMemo(()=>extractAsistens([...allDocs,...rangeDocs]),[allDocs,rangeDocs]);
+  // ← BARU: fetch asisten dari Firestore saat bagian dipilih
+  useEffect(()=>{
+    if (!bagian) { setKaryawanList([]); setSelected([]); return; }
+    setKaryawanLoading(true);
+    setSelected([]);
+    fetchAsistenByBagian(bagian)
+      .then(list => setKaryawanList(list))
+      .finally(() => setKaryawanLoading(false));
+  },[bagian]);
+
+  const knownAsistens=useMemo(()=>{
+    if (karyawanList.length > 0) return karyawanList;
+    return extractAsistens([...allDocs,...rangeDocs]);
+  },[karyawanList,allDocs,rangeDocs]);
+
   const toggle=(nama)=>setSelected(prev=>prev.includes(nama)?prev.filter(n=>n!==nama):prev.length>=3?prev:[...prev,nama]);
 
   const handleCompare=useCallback(async()=>{
@@ -753,7 +814,21 @@ function BandingkanPanel({ allDocs, initRangeDocs }) {
         <View style={ap.filterHeader}><Ionicons name="git-compare-outline" size={15} color="#1565C0"/><Text style={ap.filterTitle}>Penilaian Performa Asisten</Text></View>
         <Text style={ap.filterSub}>Pilih 2–3 asisten untuk membandingkan performa</Text>
         <DateRangeRow fromDate={fromDate} toDate={toDate} onFromChange={setFromDate} onToChange={setToDate}/>
-        <Text style={[ap.fieldLabel,{marginBottom:8}]}>Asisten Dipilih <Text style={{color:'#aaa',fontWeight:'400'}}>({selected.length}/3)</Text></Text>
+
+        {/* ← BARU: Pilih Bagian */}
+        <Text style={ap.fieldLabel}>Bagian Produksi</Text>
+        <View style={ap.bagianRow}>
+          {BAGIAN_PRODUKSI.map(b=>(
+            <TouchableOpacity key={b.value} style={[ap.bagianBtn, bagian===b.value && ap.bagianBtnActive]} onPress={()=>setBagian(b.value)}>
+              <Text style={[ap.bagianBtnTxt, bagian===b.value && ap.bagianBtnTxtActive]}>{b.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <Text style={[ap.fieldLabel,{marginBottom:8}]}>
+          Asisten Dipilih <Text style={{color:'#aaa',fontWeight:'400'}}>({selected.length}/3)</Text>
+          {karyawanLoading && <Text style={{color:'#1565C0'}}> — Memuat...</Text>}
+        </Text>
         <View style={ap.chipsRow}>
           {selected.map((nama,i)=>(
             <View key={nama} style={[ap.chip,{backgroundColor:ASISTEN_BG[i],borderColor:ASISTEN_COLORS[i]}]}>
@@ -765,13 +840,16 @@ function BandingkanPanel({ allDocs, initRangeDocs }) {
             </View>
           ))}
           {selected.length<3&&(
-            <TouchableOpacity style={ap.addChip} onPress={()=>setShowPicker(true)}>
+            <TouchableOpacity style={ap.addChip} onPress={()=>{
+              if(!bagian){Alert.alert('Pilih bagian produksi dulu');return;}
+              setShowPicker(true);
+            }}>
               <Ionicons name="add-circle-outline" size={15} color="#1565C0"/>
               <Text style={ap.addChipTxt}>{selected.length===0?'Pilih asisten':'Tambah'}</Text>
             </TouchableOpacity>
           )}
         </View>
-        {selected.length<2&&<View style={ap.hintRow}><Ionicons name="information-circle-outline" size={13} color="#90a4ae"/><Text style={ap.hintTxt}>Minimal 2 asisten untuk membandingkan</Text></View>}
+        {selected.length<2&&<View style={ap.hintRow}><Ionicons name="information-circle-outline" size={13} color="#90a4ae"/><Text style={ap.hintTxt}>{bagian?'Minimal 2 asisten untuk membandingkan':'Pilih bagian produksi dulu'}</Text></View>}
         <ActionBtn label="Bandingkan Sekarang" icon="git-compare-outline" onPress={handleCompare} disabled={selected.length<2||loading} loading={loading}/>
       </View>
 
@@ -1230,6 +1308,13 @@ const pa=StyleSheet.create({
   tabActive:{backgroundColor:'#1565C0'},tabTxt:{fontSize:11,fontWeight:'700',color:'#1565C0'},tabTxtActive:{color:'#fff'},
 });
 const ap=StyleSheet.create({
+  // Bagian selector buttons
+  bagianRow:{flexDirection:'row',flexWrap:'wrap',gap:8,marginBottom:14},
+  bagianBtn:{paddingHorizontal:14,paddingVertical:8,borderRadius:20,borderWidth:1.5,borderColor:'#D0DCF0',backgroundColor:'#F8FAFF'},
+  bagianBtnActive:{borderColor:'#1565C0',backgroundColor:'#1565C0'},
+  bagianBtnTxt:{fontSize:12,fontWeight:'700',color:'#888'},
+  bagianBtnTxtActive:{color:'#fff'},
+
   container:{padding:12,gap:12},
   filterCard:{backgroundColor:'#fff',borderRadius:14,padding:16,elevation:3,shadowColor:'#1565C0',shadowOffset:{width:0,height:2},shadowOpacity:0.09,shadowRadius:6},
   filterHeader:{flexDirection:'row',alignItems:'center',gap:8,marginBottom:4},

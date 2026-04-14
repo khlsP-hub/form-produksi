@@ -24,10 +24,28 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-const todayStr = () => new Date().toLocaleDateString('id-ID');
-const yesterdayStr = () => {
-  const d = new Date(); d.setDate(d.getDate() - 1);
-  return d.toLocaleDateString('id-ID');
+// Selalu format tanggal dengan leading zero "DD/MM/YYYY" agar konsisten
+// dengan DatePickerInput.formatDisplay() dan data yang tersimpan di Firestore
+const padZ = (n) => String(n).padStart(2, '0');
+const fmtDate = (d) => `${padZ(d.getDate())}/${padZ(d.getMonth()+1)}/${d.getFullYear()}`;
+
+const todayStr = () => fmtDate(new Date());
+
+// Parse format "DD/MM/YYYY" → Date object
+const parseFormDate = (dateStr) => {
+  if (!dateStr) return new Date();
+  const parts = dateStr.split('/');
+  if (parts.length !== 3) return new Date();
+  return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+};
+
+// Hitung "kemarin" dari tanggal yang dipilih user di form
+// Selalu hasilkan format "DD/MM/YYYY" dengan leading zero
+// agar konsisten dengan data yang tersimpan di Firestore
+const getYesterdayOf = (dateStr) => {
+  const d = parseFormDate(dateStr);
+  d.setDate(d.getDate() - 1);
+  return fmtDate(d);
 };
 
 const SHIFT_REFS = {
@@ -60,7 +78,8 @@ const initialState = () => ({
 });
 
 // ─── Komponen: Panel referensi shift sebelumnya ───────────────────────────────
-function ShiftReferencePanel({ activeShift }) {
+// FIX: tambah prop tanggal dan bagianProduksi
+function ShiftReferencePanel({ activeShift, tanggal, bagianProduksi }) {
   const [refData,   setRefData]   = useState({});
   const [loading,   setLoading]   = useState(false);
   const [expanded,  setExpanded]  = useState(null);
@@ -68,24 +87,43 @@ function ShiftReferencePanel({ activeShift }) {
 
   const refs = SHIFT_REFS[activeShift] || [];
 
+  // FIX: re-fetch setiap kali activeShift, tanggal, atau bagianProduksi berubah
   useEffect(() => {
     if (refs.length === 0) return;
+    setRefData({}); // reset agar tidak tampil data lama
     fetchRefs();
-  }, [activeShift]);
+  }, [activeShift, tanggal, bagianProduksi]);
 
   const fetchRefs = async () => {
     setLoading(true);
-    const today = todayStr();
-    const yesterday = yesterdayStr();
+
+    // FIX: hitung "hari ini" dan "kemarin" dari tanggal yang dipilih di form
+    const todayDate     = tanggal || todayStr();
+    const yesterdayDate = getYesterdayOf(todayDate);
+
     const result = {};
     for (const ref of refs) {
-      const tanggal = ref.tanggal === 'today' ? today : yesterday;
+      // FIX: gunakan tanggal dari form, bukan real-time
+      const tanggalQuery = ref.tanggal === 'today' ? todayDate : yesterdayDate;
+
       try {
-        const q = query(
-          collection(db, 'form_produksi'),
-          where('tanggal', '==', tanggal),
-          limit(20)
-        );
+        // FIX: filter berdasarkan bagianProduksi jika sudah dipilih
+        let q;
+        if (bagianProduksi) {
+          q = query(
+            collection(db, 'form_produksi'),
+            where('tanggal', '==', tanggalQuery),
+            where('bagianProduksi', '==', bagianProduksi),
+            limit(20)
+          );
+        } else {
+          q = query(
+            collection(db, 'form_produksi'),
+            where('tanggal', '==', tanggalQuery),
+            limit(20)
+          );
+        }
+
         const snap = await getDocs(q);
         const docs = snap.docs
           .map(d => ({ id: d.id, ...d.data() }))
@@ -99,9 +137,9 @@ function ShiftReferencePanel({ activeShift }) {
             const s = d[ref.shift];
             return s && (s.output || s.karu || (s.rows && s.rows.some(r => r.permasalahan)));
           });
-        result[`${ref.shift}_${ref.tanggal}`] = { ref, docs, tanggal };
+        result[`${ref.shift}_${ref.tanggal}`] = { ref, docs, tanggal: tanggalQuery };
       } catch (e) {
-        result[`${ref.shift}_${ref.tanggal}`] = { ref, docs: [], tanggal, error: true };
+        result[`${ref.shift}_${ref.tanggal}`] = { ref, docs: [], tanggal: tanggalQuery, error: true };
       }
     }
     setRefData(result);
@@ -139,15 +177,21 @@ function ShiftReferencePanel({ activeShift }) {
                   <Text style={refStyles.refGroupTitle}>{ref.label}</Text>
                   {data && <Text style={refStyles.refCount}>{data.docs?.length ?? 0} form</Text>}
                 </View>
+                {/* FIX: tampilkan tanggal dan bagian yang sedang diquery */}
+                {data && (
+                  <Text style={refStyles.refDateInfo}>
+                    📅 {data.tanggal}{bagianProduksi ? `  ·  ${bagianProduksi}` : ''}
+                  </Text>
+                )}
                 {!data && loading && <Text style={refStyles.refEmpty}>Memuat...</Text>}
                 {data?.error && <Text style={refStyles.refEmpty}>Gagal memuat data</Text>}
                 {data && !data.error && data.docs.length === 0 && (
                   <Text style={refStyles.refEmpty}>Belum ada form untuk {ref.label.toLowerCase()}</Text>
                 )}
                 {data?.docs.map(doc => {
-                  const shiftData  = doc[ref.shift];
-                  const hasIssue   = shiftData?.rows?.some(r => r.permasalahan);
-                  const hasOpen    = shiftData?.rows?.some(r => r.status === 'open');
+                  const shiftData   = doc[ref.shift];
+                  const hasIssue    = shiftData?.rows?.some(r => r.permasalahan);
+                  const hasOpen     = shiftData?.rows?.some(r => r.status === 'open');
                   const produkLabel = getLabel(NAMA_PRODUK, doc.namaProduk);
                   return (
                     <TouchableOpacity
@@ -280,8 +324,8 @@ export default function FormScreen() {
   const [errors,  setErrors]          = useState({});
   const [activeShift, setActiveShift] = useState(1);
 
-  const { produkList, mesinList, loading: masterLoading, error: masterError } = useMasterData(
-    form.bagianProduksi || null
+  const { produkList, mesinList, karuList, asistenList, loading: masterLoading, error: masterError } = useMasterData(
+  form.bagianProduksi || null
   );
 
   const getProdukOptions = () => produkList;
@@ -309,7 +353,7 @@ export default function FormScreen() {
     const produk = list.find(p => p.value === value);
     setForm(prev => ({
       ...prev,
-      namaProduk:      produk?.label || value,  // ← label = nama produk
+      namaProduk:      produk?.label || value,  // label = nama produk
       namaProdukValue: value,
       kodeProduk:      produk?.kode  || '',
     }));
@@ -354,11 +398,11 @@ export default function FormScreen() {
               shift3:         form.shift3,
               createdAt:      serverTimestamp(),
             });
-            Alert.alert('Berhasil ✅', 'Form berhasil disimpan!', [
+            Alert.alert('Berhasil \u2705', 'Form berhasil disimpan!', [
               { text: 'OK', onPress: () => { setForm(initialState()); setActiveShift(1); } }
             ]);
           } catch (e) {
-            Alert.alert('Error ❌', 'Gagal menyimpan: ' + e.message);
+            Alert.alert('Error \u274C', 'Gagal menyimpan: ' + e.message);
           } finally {
             setLoading(false);
           }
@@ -371,7 +415,7 @@ export default function FormScreen() {
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
 
-        {/* ── Header ── */}
+        {/* Header */}
         <View style={styles.header}>
           <View style={styles.headerBadge}>
             <Ionicons name="clipboard" size={14} color="#90CAF9" />
@@ -382,7 +426,7 @@ export default function FormScreen() {
 
         <View style={styles.content}>
 
-          {/* ── Card Data Produksi ── */}
+          {/* Card Data Produksi */}
           <View style={styles.card}>
             <View style={styles.cardTitleRow}>
               <View style={styles.cardTitleIcon}>
@@ -413,7 +457,7 @@ export default function FormScreen() {
             )}
             {masterError && (
               <Text style={styles.masterError}>
-                ⚠️ Gagal memuat data: {masterError}
+                Gagal memuat data: {masterError}
               </Text>
             )}
 
@@ -453,7 +497,7 @@ export default function FormScreen() {
 
             {!form.bagianProduksi && (
               <Text style={styles.hint}>
-                ℹ️  Pilih bagian produksi dulu untuk melihat daftar produk & mesin
+                Pilih bagian produksi dulu untuk melihat daftar produk dan mesin
               </Text>
             )}
 
@@ -466,10 +510,14 @@ export default function FormScreen() {
             />
           </View>
 
-          {/* ── Panel referensi shift ── */}
-          <ShiftReferencePanel activeShift={activeShift} />
+          {/* FIX: teruskan tanggal dan bagianProduksi dari form ke panel */}
+          <ShiftReferencePanel
+            activeShift={activeShift}
+            tanggal={form.tanggal}
+            bagianProduksi={form.bagianProduksi}
+          />
 
-          {/* ── Shift Tabs ── */}
+          {/* Shift Tabs */}
           <View style={styles.tabContainer}>
             {[1, 2, 3].map(s => (
               <TouchableOpacity
@@ -483,11 +531,11 @@ export default function FormScreen() {
             ))}
           </View>
 
-          {activeShift === 1 && <ShiftSection shiftNumber={1} data={form.shift1} onChange={v => setForm(p => ({ ...p, shift1: v }))} />}
-          {activeShift === 2 && <ShiftSection shiftNumber={2} data={form.shift2} onChange={v => setForm(p => ({ ...p, shift2: v }))} />}
-          {activeShift === 3 && <ShiftSection shiftNumber={3} data={form.shift3} onChange={v => setForm(p => ({ ...p, shift3: v }))} />}
+          {activeShift === 1 && <ShiftSection shiftNumber={1} data={form.shift1} onChange={v => setForm(p => ({ ...p, shift1: v }))} karuList={karuList} asistenList={asistenList} />}
+          {activeShift === 2 && <ShiftSection shiftNumber={2} data={form.shift2} onChange={v => setForm(p => ({ ...p, shift2: v }))} karuList={karuList} asistenList={asistenList} />}
+          {activeShift === 3 && <ShiftSection shiftNumber={3} data={form.shift3} onChange={v => setForm(p => ({ ...p, shift3: v }))} karuList={karuList} asistenList={asistenList} />}
 
-          {/* ── Submit ── */}
+          {/* Submit */}
           <TouchableOpacity
             style={[styles.submitBtn, loading && styles.submitDisabled]}
             onPress={handleSubmit}
@@ -579,11 +627,15 @@ const refStyles = StyleSheet.create({
   headerRight: { flexDirection: 'row', alignItems: 'center' },
   body:        { paddingHorizontal: 14, paddingBottom: 12 },
   refGroup:       { marginTop: 12 },
-  refGroupHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  refGroupHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
   refGroupTitle:  { fontSize: 12, fontWeight: '700', color: '#1565C0', flex: 1 },
   refCount: {
     fontSize: 11, color: '#888', backgroundColor: '#EEF2F8',
     paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10,
+  },
+  refDateInfo: {
+    fontSize: 11, color: '#888', fontStyle: 'italic',
+    marginBottom: 6, paddingLeft: 2,
   },
   refEmpty: { fontSize: 12, color: '#aaa', fontStyle: 'italic', paddingVertical: 6 },
   refCard: {

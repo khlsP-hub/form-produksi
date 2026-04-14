@@ -12,6 +12,7 @@ import {
 import { db } from '../firebase/config';
 import { Ionicons } from '@expo/vector-icons';
 import { BAGIAN_PRODUKSI, NAMA_PRODUK } from '../data/masterData';
+import DowntimePicker from '../components/DowntimePicker';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const getLabel = (options, value) => {
@@ -26,6 +27,22 @@ const parseReject = (val) => {
   return str.includes(',')
     ? parseFloat(str.replace(/\./g, '').replace(',', '.')) || 0
     : parseFloat(str) || 0;
+};
+
+/**
+ * Format nilai downtime untuk ditampilkan di detail/riwayat.
+ * Format baru "HH:MM - HH:MM" ditampilkan apa adanya.
+ * Format lama (angka menit) ditampilkan sebagai "X menit".
+ */
+const formatDowntimeDisplay = (val) => {
+  if (!val) return '-';
+  const str = String(val).trim();
+  // Format baru: ada " - " di tengah dan ada titik dua
+  if (str.includes(':') && str.includes(' - ')) return str;
+  // Format lama: coba parse sebagai angka
+  const num = parseFloat(str);
+  if (!isNaN(num) && num > 0) return `${num} menit`;
+  return str || '-';
 };
 
 const emptyRow = () => ({
@@ -111,8 +128,13 @@ function RowEditor({ row, idx, onUpdate, onRemove, canRemove }) {
         )}
       </View>
 
-      <FieldInput label="Downtime (menit)" value={row.downtime}
-        onChangeText={v => update('downtime', v)} keyboardType="numeric"/>
+      {/* ── DOWNTIME: ganti FieldInput → DowntimePicker ── */}
+      <DowntimePicker
+        label="Downtime"
+        value={row.downtime}
+        onChange={(val) => update('downtime', val)}
+      />
+
       <FieldInput label="Permasalahan" value={row.permasalahan}
         onChangeText={v => update('permasalahan', v)} multiline/>
       <FieldInput label="Total Reject (KG)" value={row.totalReject}
@@ -303,91 +325,92 @@ function EditModal({ item, onClose, onSaved }) {
   return (
     <Modal visible={!!item} transparent animationType="slide">
       <View style={edit.overlay}>
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          <View style={edit.sheet}>
-            {/* Header */}
-            <View style={edit.header}>
-              <View style={{ flex: 1 }}>
-                <Text style={edit.headerLabel}>EDIT FORM</Text>
-                <Text style={edit.headerTitle} numberOfLines={1}>
-                  {form.namaProduk || form.kodeProduk || 'Form'}
-                </Text>
-              </View>
-              <TouchableOpacity onPress={onClose} style={edit.closeBtn} disabled={loading}>
-                <Ionicons name="close" size={22} color="#fff"/>
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView
-              style={{ flex: 1 }}
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={{ paddingBottom: 40 }}
-            >
-              {/* ── Data Produksi ── */}
-              <View style={edit.section}>
-                <View style={edit.sectionHeader}>
-                  <View style={edit.sectionIconWrap}>
-                    <Ionicons name="cube-outline" size={14} color="#1565C0"/>
-                  </View>
-                  <Text style={edit.sectionTitle}>Data Produksi</Text>
+        <View style={edit.sheet}>
+          <KeyboardAvoidingView
+            style={{ flex: 1 }}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          >
+            <ScrollView>
+              <View style={edit.header}>
+                <View style={{ flex: 1 }}>
+                  <Text style={edit.headerLabel}>EDIT FORM</Text>
+                  <Text style={edit.headerTitle} numberOfLines={1}>
+                    {form.namaProduk || form.kodeProduk || 'Form'}
+                  </Text>
                 </View>
-
-                <FieldInput label="Tanggal" value={form.tanggal}
-                  onChangeText={v => setForm(p => ({ ...p, tanggal: v }))}/>
-                <FieldInput label="Bagian Produksi" value={form.bagianProduksi}
-                  onChangeText={v => setForm(p => ({ ...p, bagianProduksi: v }))}/>
-                <FieldInput label="Nama Produk" value={form.namaProduk}
-                  onChangeText={v => setForm(p => ({ ...p, namaProduk: v }))}/>
-                <FieldInput label="Kode Produk" value={form.kodeProduk}
-                  onChangeText={v => setForm(p => ({ ...p, kodeProduk: v }))}/>
-                <FieldInput label="No. Mesin" value={form.noMesin}
-                  onChangeText={v => setForm(p => ({ ...p, noMesin: v }))}/>
-                <FieldInput label="Berat (gram)" value={form.berat}
-                  onChangeText={v => setForm(p => ({ ...p, berat: v }))}
-                  keyboardType="numeric"/>
+                <TouchableOpacity onPress={onClose} style={edit.closeBtn} disabled={loading}>
+                  <Ionicons name="close" size={22} color="#fff"/>
+                </TouchableOpacity>
               </View>
 
-              {/* ── Shift 1/2/3 ── */}
-              <View style={edit.section}>
-                <View style={edit.sectionHeader}>
-                  <View style={edit.sectionIconWrap}>
-                    <Ionicons name="time-outline" size={14} color="#1565C0"/>
+              <ScrollView
+                style={{ flex: 1 }}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={{ paddingBottom: 40 }}
+              >
+                {/* ── Data Produksi ── */}
+                <View style={edit.section}>
+                  <View style={edit.sectionHeader}>
+                    <View style={edit.sectionIconWrap}>
+                      <Ionicons name="cube-outline" size={14} color="#1565C0"/>
+                    </View>
+                    <Text style={edit.sectionTitle}>Data Produksi</Text>
                   </View>
-                  <Text style={edit.sectionTitle}>Data Shift</Text>
+
+                  <FieldInput label="Tanggal" value={form.tanggal}
+                    onChangeText={v => setForm(p => ({ ...p, tanggal: v }))}/>
+                  <FieldInput label="Bagian Produksi" value={form.bagianProduksi}
+                    onChangeText={v => setForm(p => ({ ...p, bagianProduksi: v }))}/>
+                  <FieldInput label="Nama Produk" value={form.namaProduk}
+                    onChangeText={v => setForm(p => ({ ...p, namaProduk: v }))}/>
+                  <FieldInput label="Kode Produk" value={form.kodeProduk}
+                    onChangeText={v => setForm(p => ({ ...p, kodeProduk: v }))}/>
+                  <FieldInput label="No. Mesin" value={form.noMesin}
+                    onChangeText={v => setForm(p => ({ ...p, noMesin: v }))}/>
+                  <FieldInput label="Berat (gram)" value={form.berat}
+                    onChangeText={v => setForm(p => ({ ...p, berat: v }))}
+                    keyboardType="numeric"/>
                 </View>
 
-                {[1, 2, 3].map(num => (
-                  <ShiftEditor
-                    key={num}
-                    shiftNum={num}
-                    shift={form[`shift${num}`]}
-                    onUpdate={val => updateShift(num, val)}
-                    enabled={shiftOn[num]}
-                    onToggle={() => toggleShift(num)}
-                  />
-                ))}
+                {/* ── Shift 1/2/3 ── */}
+                <View style={edit.section}>
+                  <View style={edit.sectionHeader}>
+                    <View style={edit.sectionIconWrap}>
+                      <Ionicons name="time-outline" size={14} color="#1565C0"/>
+                    </View>
+                    <Text style={edit.sectionTitle}>Data Shift</Text>
+                  </View>
+
+                  {[1, 2, 3].map(num => (
+                    <ShiftEditor
+                      key={num}
+                      shiftNum={num}
+                      shift={form[`shift${num}`]}
+                      onUpdate={val => updateShift(num, val)}
+                      enabled={shiftOn[num]}
+                      onToggle={() => toggleShift(num)}
+                    />
+                  ))}
+                </View>
+              </ScrollView>
+
+              {/* ── Footer tombol ── */}
+              <View style={edit.footer}>
+                <TouchableOpacity style={edit.cancelBtn} onPress={onClose} disabled={loading}>
+                  <Text style={edit.cancelTxt}>Batal</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={edit.saveBtn} onPress={confirmSave} disabled={loading}>
+                  {loading
+                    ? <ActivityIndicator size="small" color="#fff"/>
+                    : <><Ionicons name="checkmark-circle-outline" size={18} color="#fff"/>
+                       <Text style={edit.saveTxt}>Simpan Perubahan</Text></>
+                  }
+                </TouchableOpacity>
               </View>
             </ScrollView>
-
-            {/* ── Footer tombol ── */}
-            <View style={edit.footer}>
-              <TouchableOpacity style={edit.cancelBtn} onPress={onClose} disabled={loading}>
-                <Text style={edit.cancelTxt}>Batal</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={edit.saveBtn} onPress={confirmSave} disabled={loading}>
-                {loading
-                  ? <ActivityIndicator size="small" color="#fff"/>
-                  : <><Ionicons name="checkmark-circle-outline" size={18} color="#fff"/>
-                     <Text style={edit.saveTxt}>Simpan Perubahan</Text></>
-                }
-              </TouchableOpacity>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
+          </KeyboardAvoidingView>
+        </View>
       </View>
     </Modal>
   );
@@ -417,12 +440,12 @@ function DetailModal({ item, onClose }) {
           <View key={i} style={styles.rowDetail}>
             <Text style={styles.rowNum}>Permasalahan #{i + 1}</Text>
             {[
-              ['Downtime', row.downtime],
-              ['Permasalahan', row.permasalahan],
+              ['Downtime',          formatDowntimeDisplay(row.downtime)],
+              ['Permasalahan',      row.permasalahan],
               ['Total Reject (KG)', row.totalReject],
-              ['Penanganan', row.penanganan],
-              ['Nama Asisten', row.namaAsisten],
-              ['Status', row.status],
+              ['Penanganan',        row.penanganan],
+              ['Nama Asisten',      row.namaAsisten],
+              ['Status',            row.status],
             ].map(([k, v]) => (
               <View style={styles.detailRow} key={k}>
                 <Text style={styles.detailKey}>{k}</Text>
@@ -496,16 +519,27 @@ export default function HistoryScreen() {
   }, []);
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return forms;
-    const q = search.toLowerCase();
-    return forms.filter(f =>
-      (f.namaProduk     || '').toLowerCase().includes(q) ||
-      (f.kodeProduk     || '').toLowerCase().includes(q) ||
-      (f.noMesin        || '').toLowerCase().includes(q) ||
-      (f.tanggal        || '').toLowerCase().includes(q) ||
-      (f.bagianProduksi || '').toLowerCase().includes(q)
+  if (!search.trim()) return forms;
+
+  const normalize = (str) =>
+    String(str || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, ''); // 🔥 hapus semua selain huruf & angka
+
+  const q = normalize(search);
+
+  return forms.filter(f => {
+    const namaProduk = normalize(f.namaProduk);
+    const kodeProduk = normalize(f.kodeProduk);
+    const noMesin    = normalize(f.noMesin);
+
+    return (
+      namaProduk.includes(q) ||
+      kodeProduk.includes(q) ||
+      noMesin.includes(q)
     );
-  }, [forms, search]);
+  });
+}, [forms, search]);
 
   const handleDelete = (id) => {
     Alert.alert('Hapus Form', 'Yakin ingin menghapus form ini?', [
@@ -523,7 +557,6 @@ export default function HistoryScreen() {
     ]);
   };
 
-  // Warna tag bagian
   const bagianColor = (bagian) => {
     switch (bagian) {
       case 'PET':    return { bg: '#E3F2FD', text: '#1565C0' };
@@ -586,7 +619,6 @@ export default function HistoryScreen() {
             <Text style={styles.statText}>Reject: {totalRejects.toFixed(2)} KG</Text>
           </View>
           <View style={styles.actionRow}>
-            {/* Tombol Edit */}
             <TouchableOpacity
               style={styles.editBtn}
               onPress={() => setEditing(item)}
@@ -595,7 +627,6 @@ export default function HistoryScreen() {
               <Ionicons name="create-outline" size={15} color="#1565C0"/>
               <Text style={styles.editTxt}>Edit</Text>
             </TouchableOpacity>
-            {/* Tombol Hapus */}
             <TouchableOpacity
               style={styles.deleteBtn}
               onPress={() => handleDelete(item.id)}
@@ -676,7 +707,6 @@ export default function HistoryScreen() {
       />
 
       <DetailModal item={selected} onClose={() => setSelected(null)}/>
-
       <EditModal
         item={editing}
         onClose={() => setEditing(null)}
@@ -794,7 +824,7 @@ const edit = StyleSheet.create({
   overlay:  { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: '#F0F4FA', borderTopLeftRadius: 20, borderTopRightRadius: 20,
-    maxHeight: '94%', overflow: 'hidden',
+    height: '94%', overflow: 'hidden',
   },
   header: {
     backgroundColor: '#1565C0', flexDirection: 'row', alignItems: 'flex-start',
@@ -804,7 +834,6 @@ const edit = StyleSheet.create({
   headerTitle:  { color: '#fff', fontSize: 15, fontWeight: '800' },
   closeBtn:     { padding: 4, marginLeft: 8 },
 
-  // Section
   section: {
     backgroundColor: '#fff', marginHorizontal: 12, marginTop: 12,
     borderRadius: 14, padding: 14,
@@ -815,7 +844,6 @@ const edit = StyleSheet.create({
   sectionIconWrap:{ backgroundColor: '#EEF4FF', padding: 6, borderRadius: 8 },
   sectionTitle:   { fontSize: 13, fontWeight: '800', color: '#1565C0' },
 
-  // Field
   fieldWrap:      { marginBottom: 10 },
   fieldLabel:     { fontSize: 11, fontWeight: '700', color: '#555', marginBottom: 5 },
   fieldInput: {
@@ -827,7 +855,6 @@ const edit = StyleSheet.create({
 
   shiftFieldRow:  { flexDirection: 'row' },
 
-  // Shift card
   shiftCard: {
     borderWidth: 1.5, borderColor: '#D8E3F0', borderRadius: 12,
     marginBottom: 10, overflow: 'hidden',
@@ -847,7 +874,6 @@ const edit = StyleSheet.create({
   shiftToggleLbl: { fontSize: 11, color: '#888' },
   shiftBody:      { padding: 12, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#EEF0F2' },
 
-  // Rows permasalahan
   rowsSection:    { marginTop: 8 },
   rowsSectionTitle:{ fontSize: 11, fontWeight: '800', color: '#546E7A', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
   rowCard: {
@@ -862,7 +888,6 @@ const edit = StyleSheet.create({
   rowTitle:       { flex: 1, fontSize: 12, fontWeight: '700', color: '#333' },
   rowRemoveBtn:   { padding: 4 },
 
-  // Status toggle
   statusRow:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
   statusToggleWrap:{ flexDirection: 'row', gap: 6 },
   statusBtn: {
@@ -873,7 +898,6 @@ const edit = StyleSheet.create({
   statusBtnClose: { backgroundColor: '#E8F5E9', borderColor: '#2e7d32' },
   statusBtnTxt:   { fontSize: 11, fontWeight: '800', color: '#90A4AE' },
 
-  // Add row
   addRowBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     justifyContent: 'center', paddingVertical: 10,
@@ -882,7 +906,6 @@ const edit = StyleSheet.create({
   },
   addRowTxt:      { fontSize: 12, fontWeight: '700', color: '#1565C0' },
 
-  // Footer
   footer: {
     flexDirection: 'row', gap: 10, padding: 14,
     borderTopWidth: 1, borderTopColor: '#E8EDF5', backgroundColor: '#fff',
