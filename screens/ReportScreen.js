@@ -112,7 +112,7 @@ function buildAsistenData(docs, namaAsisten) {
     const output=parseNum(shift.outputRaw??shift.output), berat=parseNum(doc.berat);
     const outKg=(output>0&&berat>0)?(output*berat)/1000:0;
     const rejectPct=outKg>0?(myReject/outKg)*100:null;
-    points.push({tanggal:doc.tanggal,normTgl:normDate(doc.tanggal),shiftNum:n,noMesin:doc.noMesin||'-',kodeProduk:doc.kodeProduk||doc.namaProduk||'-',berat:doc.berat,output,outKg,rejectKg:myReject,rejectPct,rows:myRows,hasOpen:myRows.some(r=>r.status==='open'),karu:shift.karu});
+    points.push({tanggal:doc.tanggal,normTgl:normDate(doc.tanggal),shiftNum:n,noMesin:doc.noMesin||'-',kodeProduk:doc.namaProduk||doc.kodeProduk||'-',berat:doc.berat,output,outKg,rejectKg:myReject,rejectPct,rows:myRows,hasOpen:myRows.some(r=>r.status==='open'),karu:shift.karu});
   }));
   return points.sort((a,b)=>{const ta=parseDate(a.tanggal).getTime(),tb=parseDate(b.tanggal).getTime();return ta!==tb?ta-tb:a.shiftNum-b.shiftNum;});
 }
@@ -1084,7 +1084,7 @@ function FormCard({ doc, activeReport }) {
             {anyOpen&&<View style={[fc.badge,{backgroundColor:'#FCE4EC'}]}><Ionicons name="alert-circle" size={10} color="#c62828"/><Text style={[fc.badgeTxt,{color:'#c62828'}]}>OPEN</Text></View>}
           </View>
           <Text style={fc.mesin}>{doc.noMesin||'-'}</Text>
-          <Text style={fc.produk} numberOfLines={1}>{doc.kodeProduk||doc.namaProduk||'-'}</Text>
+          <Text style={fc.produk} numberOfLines={1}>{doc.namaProduk||doc.kodeProduk||'-'}</Text>
         </View>
         <View style={fc.right}>
           <Text style={fc.totalVal}>{totalReject.toFixed(2)}</Text><Text style={fc.totalUnit}>KG Reject</Text>

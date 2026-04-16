@@ -17,6 +17,7 @@
     "expo": "~54.0.33",
     "expo-font": "~14.0.11",
     "expo-status-bar": "~3.0.9",
+    "expo-updates": "~29.0.16",
     "firebase": "^10.12.2",
     "graphql": "^15.8.0",
     "moment": "^2.30.1",
