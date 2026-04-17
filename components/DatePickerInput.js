@@ -6,6 +6,7 @@ import {
   StyleSheet, ScrollView
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const MONTHS = [
   'Januari','Februari','Maret','April','Mei','Juni',
@@ -34,6 +35,7 @@ function formatDisplay(date) {
 
 export default function DatePickerInput({ label, value, onChange, error }) {
   const [visible, setVisible] = useState(false);
+  const insets = useSafeAreaInsets();
 
   const currentDate = parseLocalDate(value);
   const [tempDate, setTempDate] = useState(currentDate);
@@ -124,7 +126,7 @@ export default function DatePickerInput({ label, value, onChange, error }) {
               </TouchableOpacity>
             </View>
 
-            <View style={styles.sheetBody}>
+            <View style={[styles.sheetBody, { paddingBottom: 16 + insets.bottom }]}>
               {/* ── Navigasi Bulan/Tahun ── */}
               <View style={styles.navRow}>
                 <TouchableOpacity onPress={() => changeYear(-1)} style={styles.navBtn}>
@@ -234,7 +236,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingVertical: 14,
   },
   sheetTitle: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  sheetBody:  { padding: 16 },
+  sheetBody: {
+  padding: 16,
+  paddingBottom: 16, // default (biar tidak error di StyleSheet)
+},
 
   navRow: {
     flexDirection: 'row', alignItems: 'center',

@@ -3,8 +3,9 @@ import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, Alert, ActivityIndicator, KeyboardAvoidingView,
-  Platform, Modal
+  Platform, Modal, BackHandler,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   collection, addDoc, serverTimestamp,
   query, where, getDocs, limit
@@ -24,14 +25,10 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-// Selalu format tanggal dengan leading zero "DD/MM/YYYY" agar konsisten
-// dengan DatePickerInput.formatDisplay() dan data yang tersimpan di Firestore
-const padZ = (n) => String(n).padStart(2, '0');
-const fmtDate = (d) => `${padZ(d.getDate())}/${padZ(d.getMonth()+1)}/${d.getFullYear()}`;
+const padZ    = (n)       => String(n).padStart(2, '0');
+const fmtDate = (d)       => `${padZ(d.getDate())}/${padZ(d.getMonth()+1)}/${d.getFullYear()}`;
+const todayStr = ()       => fmtDate(new Date());
 
-const todayStr = () => fmtDate(new Date());
-
-// Parse format "DD/MM/YYYY" → Date object
 const parseFormDate = (dateStr) => {
   if (!dateStr) return new Date();
   const parts = dateStr.split('/');
@@ -39,9 +36,6 @@ const parseFormDate = (dateStr) => {
   return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
 };
 
-// Hitung "kemarin" dari tanggal yang dipilih user di form
-// Selalu hasilkan format "DD/MM/YYYY" dengan leading zero
-// agar konsisten dengan data yang tersimpan di Firestore
 const getYesterdayOf = (dateStr) => {
   const d = parseFormDate(dateStr);
   d.setDate(d.getDate() - 1);
@@ -77,8 +71,141 @@ const initialState = () => ({
   shift3: createEmptyShift(),
 });
 
+// ─── Komponen: Modal Detail Shift ─────────────────────────────────────────────
+function ShiftDetailModal({ visible, item, onClose }) {
+  // ── FIX 2 & 3: SafeAreaInsets + back handler ──
+  const insets = useSafeAreaInsets();
+
+  // Tangkap tombol back hardware Android
+  useEffect(() => {
+    if (!visible) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      onClose();
+      return true; // mencegah default (keluar app / navigate back)
+    });
+    return () => sub.remove();
+  }, [visible]);
+
+  if (!item) return null;
+  const { doc, ref, shiftData } = item;
+  const produkLabel = getLabel(NAMA_PRODUK, doc.namaProduk);
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      onRequestClose={onClose}   // FIX: wajib ada agar back gesture juga tutup modal
+      statusBarTranslucent        // FIX: modal menggambar di bawah status bar
+    >
+      <View style={[modalStyles.overlay, { paddingTop: insets.top }]}>
+        <View style={modalStyles.sheet}>
+
+          {/* ── Header dengan paddingTop untuk status bar ── */}
+          <View style={modalStyles.header}>
+            {/* Tombol back eksplisit — lebih familiar bagi user Android */}
+            <TouchableOpacity
+              onPress={onClose}
+              style={modalStyles.backBtn}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons name="arrow-back" size={22} color="#fff" />
+            </TouchableOpacity>
+
+            <View style={{ flex: 1, marginLeft: 8 }}>
+              <Text style={modalStyles.headerLabel} numberOfLines={1}>
+                {ref.label}
+              </Text>
+              {/* FIX 3: numberOfLines ditambah + adjustsFontSizeToFit agar
+                  judul tidak terpotong; layout header sudah reserve space */}
+              <Text
+                style={modalStyles.headerTitle}
+                numberOfLines={3}
+                adjustsFontSizeToFit
+                minimumFontScale={0.75}
+              >
+                {produkLabel}
+              </Text>
+            </View>
+          </View>
+
+          <ScrollView
+            style={modalStyles.scroll}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+          >
+            {/* Info chip row */}
+            <View style={modalStyles.infoRow}>
+              {[
+                ['Mesin',  doc.noMesin],
+                ['Kode',   doc.kodeProduk],
+                ['Output', shiftData?.output],
+                ['Cavity', shiftData?.cavity],
+                ['CT',     shiftData?.cycleTime],
+                ['Karu',   shiftData?.karu],
+              ]
+                .filter(([, v]) => v)
+                .map(([k, v]) => (
+                  <View key={k} style={modalStyles.infoChip}>
+                    <Text style={modalStyles.infoKey}>{k}</Text>
+                    <Text style={modalStyles.infoVal}>{v}</Text>
+                  </View>
+                ))}
+            </View>
+
+            {/* Data Permasalahan */}
+            {shiftData?.rows?.length > 0 && (
+              <View style={modalStyles.section}>
+                <Text style={modalStyles.sectionTitle}>Data Permasalahan</Text>
+                {shiftData.rows.map((row, i) => {
+                  const isOpen = row.status === 'open';
+                  if (!row.permasalahan && !row.downtime) return null;
+                  return (
+                    <View
+                      key={i}
+                      style={[modalStyles.problemCard, isOpen && modalStyles.problemCardOpen]}
+                    >
+                      <View style={modalStyles.problemHeader}>
+                        <Text style={modalStyles.problemNum}>Permasalahan #{i + 1}</Text>
+                        <View style={[modalStyles.statusPill, isOpen ? modalStyles.pillOpen : modalStyles.pillClose]}>
+                          <Text style={[modalStyles.statusText, { color: isOpen ? '#c62828' : '#2e7d32' }]}>
+                            {row.status?.toUpperCase() || '-'}
+                          </Text>
+                        </View>
+                      </View>
+                      {[
+                        ['Downtime',    row.downtime ? `${row.downtime} menit` : null],
+                        ['Permasalahan',row.permasalahan],
+                        ['Total Reject',row.totalReject ? `${row.totalReject} KG` : null],
+                        ['Penanganan',  row.penanganan],
+                        ['Nama Asisten',row.namaAsisten],
+                      ]
+                        .filter(([, v]) => v)
+                        .map(([k, v]) => (
+                          <View key={k} style={modalStyles.detailRow}>
+                            <Text style={modalStyles.detailKey}>{k}</Text>
+                            <Text style={modalStyles.detailVal}>{v}</Text>
+                          </View>
+                        ))}
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
+            {(!shiftData?.rows || shiftData.rows.every(r => !r.permasalahan && !r.downtime)) && (
+              <View style={modalStyles.noIssue}>
+                <Ionicons name="checkmark-circle-outline" size={28} color="#a5d6a7" />
+                <Text style={modalStyles.noIssueText}>Tidak ada permasalahan tercatat</Text>
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 // ─── Komponen: Panel referensi shift sebelumnya ───────────────────────────────
-// FIX: tambah prop tanggal dan bagianProduksi
 function ShiftReferencePanel({ activeShift, tanggal, bagianProduksi }) {
   const [refData,   setRefData]   = useState({});
   const [loading,   setLoading]   = useState(false);
@@ -87,27 +214,21 @@ function ShiftReferencePanel({ activeShift, tanggal, bagianProduksi }) {
 
   const refs = SHIFT_REFS[activeShift] || [];
 
-  // FIX: re-fetch setiap kali activeShift, tanggal, atau bagianProduksi berubah
   useEffect(() => {
     if (refs.length === 0) return;
-    setRefData({}); // reset agar tidak tampil data lama
+    setRefData({});
     fetchRefs();
   }, [activeShift, tanggal, bagianProduksi]);
 
   const fetchRefs = async () => {
     setLoading(true);
-
-    // FIX: hitung "hari ini" dan "kemarin" dari tanggal yang dipilih di form
     const todayDate     = tanggal || todayStr();
     const yesterdayDate = getYesterdayOf(todayDate);
+    const result        = {};
 
-    const result = {};
     for (const ref of refs) {
-      // FIX: gunakan tanggal dari form, bukan real-time
       const tanggalQuery = ref.tanggal === 'today' ? todayDate : yesterdayDate;
-
       try {
-        // FIX: filter berdasarkan bagianProduksi jika sudah dipilih
         let q;
         if (bagianProduksi) {
           q = query(
@@ -123,7 +244,6 @@ function ShiftReferencePanel({ activeShift, tanggal, bagianProduksi }) {
             limit(20)
           );
         }
-
         const snap = await getDocs(q);
         const docs = snap.docs
           .map(d => ({ id: d.id, ...d.data() }))
@@ -177,7 +297,6 @@ function ShiftReferencePanel({ activeShift, tanggal, bagianProduksi }) {
                   <Text style={refStyles.refGroupTitle}>{ref.label}</Text>
                   {data && <Text style={refStyles.refCount}>{data.docs?.length ?? 0} form</Text>}
                 </View>
-                {/* FIX: tampilkan tanggal dan bagian yang sedang diquery */}
                 {data && (
                   <Text style={refStyles.refDateInfo}>
                     📅 {data.tanggal}{bagianProduksi ? `  ·  ${bagianProduksi}` : ''}
@@ -233,100 +352,28 @@ function ShiftReferencePanel({ activeShift, tanggal, bagianProduksi }) {
           </TouchableOpacity>
         </View>
       )}
-      <ShiftDetailModal visible={!!modalItem} item={modalItem} onClose={() => setModalItem(null)} />
-    </View>
-  );
-}
 
-function ShiftDetailModal({ visible, item, onClose }) {
-  if (!item) return null;
-  const { doc, ref, shiftData } = item;
-  const produkLabel = getLabel(NAMA_PRODUK, doc.namaProduk);
-  return (
-    <Modal visible={visible} animationType="slide">
-      <View style={modalStyles.overlay}>
-        <View style={modalStyles.sheet}>
-          <View style={modalStyles.header}>
-            <View style={{ flex: 1 }}>
-              <Text style={modalStyles.headerLabel}>{ref.label}</Text>
-              <Text style={modalStyles.headerTitle} numberOfLines={2}>{produkLabel}</Text>
-            </View>
-            <TouchableOpacity onPress={onClose} style={modalStyles.closeBtn}>
-              <Ionicons name="close" size={22} color="#fff" />
-            </TouchableOpacity>
-          </View>
-          <ScrollView
-            style={modalStyles.scroll}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: 40 }}
-          >
-            <View style={modalStyles.infoRow}>
-              {[['Mesin',doc.noMesin],['Kode',doc.kodeProduk],['Output',shiftData?.output],
-                ['Cavity',shiftData?.cavity],['CT',shiftData?.cycleTime],['Karu',shiftData?.karu]]
-                .filter(([,v])=>v)
-                .map(([k,v])=>(
-                  <View key={k} style={modalStyles.infoChip}>
-                    <Text style={modalStyles.infoKey}>{k}</Text>
-                    <Text style={modalStyles.infoVal}>{v}</Text>
-                  </View>
-                ))}
-            </View>
-            {shiftData?.rows?.length > 0 && (
-              <View style={modalStyles.section}>
-                <Text style={modalStyles.sectionTitle}>Data Permasalahan</Text>
-                {shiftData.rows.map((row, i) => {
-                  const isOpen = row.status === 'open';
-                  if (!row.permasalahan && !row.downtime) return null;
-                  return (
-                    <View key={i} style={[modalStyles.problemCard, isOpen && modalStyles.problemCardOpen]}>
-                      <View style={modalStyles.problemHeader}>
-                        <Text style={modalStyles.problemNum}>Permasalahan #{i+1}</Text>
-                        <View style={[modalStyles.statusPill, isOpen ? modalStyles.pillOpen : modalStyles.pillClose]}>
-                          <Text style={[modalStyles.statusText,{color:isOpen?'#c62828':'#2e7d32'}]}>
-                            {row.status?.toUpperCase()||'-'}
-                          </Text>
-                        </View>
-                      </View>
-                      {[['Downtime',row.downtime?`${row.downtime} menit`:null],
-                        ['Permasalahan',row.permasalahan],
-                        ['Total Reject',row.totalReject?`${row.totalReject} KG`:null],
-                        ['Penanganan',row.penanganan],
-                        ['Nama Asisten',row.namaAsisten]]
-                        .filter(([,v])=>v)
-                        .map(([k,v])=>(
-                          <View key={k} style={modalStyles.detailRow}>
-                            <Text style={modalStyles.detailKey}>{k}</Text>
-                            <Text style={modalStyles.detailVal}>{v}</Text>
-                          </View>
-                        ))}
-                    </View>
-                  );
-                })}
-              </View>
-            )}
-            {(!shiftData?.rows || shiftData.rows.every(r=>!r.permasalahan&&!r.downtime)) && (
-              <View style={modalStyles.noIssue}>
-                <Ionicons name="checkmark-circle-outline" size={28} color="#a5d6a7" />
-                <Text style={modalStyles.noIssueText}>Tidak ada permasalahan tercatat</Text>
-              </View>
-            )}
-          </ScrollView>
-        </View>
-      </View>
-    </Modal>
+      <ShiftDetailModal
+        visible={!!modalItem}
+        item={modalItem}
+        onClose={() => setModalItem(null)}
+      />
+    </View>
   );
 }
 
 // ─── Main FormScreen ──────────────────────────────────────────────────────────
 export default function FormScreen() {
-  const [form, setForm]               = useState(initialState());
-  const [loading, setLoading]         = useState(false);
-  const [errors,  setErrors]          = useState({});
+  // ── FIX 1: gunakan insets untuk status bar ──
+  const insets = useSafeAreaInsets();
+
+  const [form,        setForm]        = useState(initialState());
+  const [loading,     setLoading]     = useState(false);
+  const [errors,      setErrors]      = useState({});
   const [activeShift, setActiveShift] = useState(1);
 
-  const { produkList, mesinList, karuList, asistenList, loading: masterLoading, error: masterError } = useMasterData(
-  form.bagianProduksi || null
-  );
+  const { produkList, mesinList, karuList, asistenList, loading: masterLoading, error: masterError } =
+    useMasterData(form.bagianProduksi || null);
 
   const getProdukOptions = () => produkList;
   const getMesinOptions  = () => mesinList;
@@ -347,13 +394,12 @@ export default function FormScreen() {
     setErrors(prev => ({ ...prev, bagianProduksi: null, namaProduk: null, noMesin: null }));
   };
 
-  // ─── FIX: simpan label (nama produk) bukan kode ───────────────────────────
   const handleProdukChange = (value) => {
     const list   = getProdukOptions();
     const produk = list.find(p => p.value === value);
     setForm(prev => ({
       ...prev,
-      namaProduk:      produk?.label || value,  // label = nama produk
+      namaProduk:      produk?.label || value,
       namaProdukValue: value,
       kodeProduk:      produk?.kode  || '',
     }));
@@ -398,11 +444,11 @@ export default function FormScreen() {
               shift3:         form.shift3,
               createdAt:      serverTimestamp(),
             });
-            Alert.alert('Berhasil \u2705', 'Form berhasil disimpan!', [
-              { text: 'OK', onPress: () => { setForm(initialState()); setActiveShift(1); } }
+            Alert.alert('Berhasil ✅', 'Form berhasil disimpan!', [
+              { text: 'OK', onPress: () => { setForm(initialState()); setActiveShift(1); } },
             ]);
           } catch (e) {
-            Alert.alert('Error \u274C', 'Gagal menyimpan: ' + e.message);
+            Alert.alert('Error ❌', 'Gagal menyimpan: ' + e.message);
           } finally {
             setLoading(false);
           }
@@ -412,11 +458,19 @@ export default function FormScreen() {
   };
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <ScrollView
+        style={styles.container}
+        showsVerticalScrollIndicator={false}
+        // FIX 1: pastikan konten tidak tertutup tab bar bawah
+        contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
+      >
 
-        {/* Header */}
-        <View style={styles.header}>
+        {/* ── FIX 1: Header dengan paddingTop menyesuaikan status bar ── */}
+        <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
           <View style={styles.headerBadge}>
             <Ionicons name="clipboard" size={14} color="#90CAF9" />
             <Text style={styles.headerBadgeText}>FORM PRODUKSI</Text>
@@ -510,7 +564,6 @@ export default function FormScreen() {
             />
           </View>
 
-          {/* FIX: teruskan tanggal dan bagianProduksi dari form ke panel */}
           <ShiftReferencePanel
             activeShift={activeShift}
             tanggal={form.tanggal}
@@ -531,9 +584,27 @@ export default function FormScreen() {
             ))}
           </View>
 
-          {activeShift === 1 && <ShiftSection shiftNumber={1} data={form.shift1} onChange={v => setForm(p => ({ ...p, shift1: v }))} karuList={karuList} asistenList={asistenList} />}
-          {activeShift === 2 && <ShiftSection shiftNumber={2} data={form.shift2} onChange={v => setForm(p => ({ ...p, shift2: v }))} karuList={karuList} asistenList={asistenList} />}
-          {activeShift === 3 && <ShiftSection shiftNumber={3} data={form.shift3} onChange={v => setForm(p => ({ ...p, shift3: v }))} karuList={karuList} asistenList={asistenList} />}
+          {activeShift === 1 && (
+            <ShiftSection
+              shiftNumber={1} data={form.shift1}
+              onChange={v => setForm(p => ({ ...p, shift1: v }))}
+              karuList={karuList} asistenList={asistenList}
+            />
+          )}
+          {activeShift === 2 && (
+            <ShiftSection
+              shiftNumber={2} data={form.shift2}
+              onChange={v => setForm(p => ({ ...p, shift2: v }))}
+              karuList={karuList} asistenList={asistenList}
+            />
+          )}
+          {activeShift === 3 && (
+            <ShiftSection
+              shiftNumber={3} data={form.shift3}
+              onChange={v => setForm(p => ({ ...p, shift3: v }))}
+              karuList={karuList} asistenList={asistenList}
+            />
+          )}
 
           {/* Submit */}
           <TouchableOpacity
@@ -541,10 +612,14 @@ export default function FormScreen() {
             onPress={handleSubmit}
             disabled={loading}
           >
-            {loading
-              ? <ActivityIndicator color="#fff" />
-              : <><Ionicons name="cloud-upload-outline" size={20} color="#fff" /><Text style={styles.submitText}>SIMPAN FORM</Text></>
-            }
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="cloud-upload-outline" size={20} color="#fff" />
+                <Text style={styles.submitText}>SIMPAN FORM</Text>
+              </>
+            )}
           </TouchableOpacity>
 
         </View>
@@ -555,8 +630,15 @@ export default function FormScreen() {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#EEF2F8' },
-  header: { backgroundColor: '#1565C0', padding: 20, paddingTop: 20, paddingBottom: 24, alignItems: 'center' },
+  container:   { flex: 1, backgroundColor: '#EEF2F8' },
+
+  // FIX 1: paddingTop di-set secara dinamis via insets di JSX (lihat atas)
+  header: {
+    backgroundColor: '#1565C0',
+    paddingHorizontal: 20,
+    paddingBottom: 24,
+    alignItems: 'center',
+  },
   headerBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     backgroundColor: 'rgba(255,255,255,0.15)',
@@ -564,7 +646,8 @@ const styles = StyleSheet.create({
   },
   headerBadgeText: { color: '#90CAF9', fontSize: 11, fontWeight: '700', letterSpacing: 1 },
   headerTitle:     { color: '#fff', fontSize: 20, fontWeight: '800', letterSpacing: 0.5 },
-  content:         { padding: 16 },
+
+  content:     { padding: 16 },
   card: {
     backgroundColor: '#fff', borderRadius: 14, padding: 16, marginBottom: 16,
     elevation: 3, shadowColor: '#1565C0',
@@ -572,7 +655,8 @@ const styles = StyleSheet.create({
   },
   cardTitleRow: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
-    marginBottom: 14, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#EEF2FF',
+    marginBottom: 14, paddingBottom: 10,
+    borderBottomWidth: 1, borderBottomColor: '#EEF2FF',
   },
   cardTitleIcon: { backgroundColor: '#EEF2FF', padding: 6, borderRadius: 8 },
   cardTitle:     { fontSize: 14, fontWeight: '700', color: '#1565C0' },
@@ -581,9 +665,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#E3F2FD', padding: 10, borderRadius: 8,
     marginBottom: 12, borderLeftWidth: 3, borderLeftColor: '#1565C0',
   },
-  kodeLabel: { fontSize: 12, color: '#1565C0', fontWeight: '600' },
-  kodeValue: { fontSize: 14, color: '#0D47A1', fontWeight: '800' },
-  hint:      { fontSize: 11, color: '#888', marginTop: -6, marginBottom: 10, fontStyle: 'italic' },
+  kodeLabel:        { fontSize: 12, color: '#1565C0', fontWeight: '600' },
+  kodeValue:        { fontSize: 14, color: '#0D47A1', fontWeight: '800' },
+  hint:             { fontSize: 11, color: '#888', marginTop: -6, marginBottom: 10, fontStyle: 'italic' },
   masterLoadingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   masterLoadingText:{ fontSize: 12, color: '#1565C0' },
   masterError:      { fontSize: 12, color: '#e53935', marginBottom: 8 },
@@ -597,9 +681,9 @@ const styles = StyleSheet.create({
     flex: 1, paddingVertical: 10, alignItems: 'center',
     borderRadius: 9, flexDirection: 'row', justifyContent: 'center', gap: 5,
   },
-  activeTab:      { backgroundColor: '#1565C0' },
-  tabText:        { fontSize: 13, fontWeight: '600', color: '#999' },
-  activeTabText:  { color: '#fff' },
+  activeTab:     { backgroundColor: '#1565C0' },
+  tabText:       { fontSize: 13, fontWeight: '600', color: '#999' },
+  activeTabText: { color: '#fff' },
   submitBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 8, backgroundColor: '#1565C0', padding: 16,
@@ -615,7 +699,8 @@ const refStyles = StyleSheet.create({
   wrapper: {
     backgroundColor: '#fff', borderRadius: 14, marginBottom: 12,
     elevation: 2, shadowColor: '#E65100',
-    shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 4, overflow: 'hidden',
+    shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 4,
+    overflow: 'hidden',
   },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -633,11 +718,8 @@ const refStyles = StyleSheet.create({
     fontSize: 11, color: '#888', backgroundColor: '#EEF2F8',
     paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10,
   },
-  refDateInfo: {
-    fontSize: 11, color: '#888', fontStyle: 'italic',
-    marginBottom: 6, paddingLeft: 2,
-  },
-  refEmpty: { fontSize: 12, color: '#aaa', fontStyle: 'italic', paddingVertical: 6 },
+  refDateInfo: { fontSize: 11, color: '#888', fontStyle: 'italic', marginBottom: 6, paddingLeft: 2 },
+  refEmpty:    { fontSize: 12, color: '#aaa', fontStyle: 'italic', paddingVertical: 6 },
   refCard: {
     backgroundColor: '#F8FAFC', borderRadius: 10, padding: 10, marginBottom: 7,
     borderLeftWidth: 3, borderLeftColor: '#90CAF9',
@@ -645,7 +727,7 @@ const refStyles = StyleSheet.create({
   refCardTop:    { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 6 },
   refProduk:     { fontSize: 13, fontWeight: '700', color: '#222' },
   refMeta:       { fontSize: 11, color: '#888', marginTop: 2 },
-  badge: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6, marginLeft: 8 },
+  badge:         { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6, marginLeft: 8 },
   badgeOpen:     { backgroundColor: '#FFEBEE' },
   badgeClose:    { backgroundColor: '#E8F5E9' },
   badgeText:     { fontSize: 10, fontWeight: '800' },
@@ -655,7 +737,7 @@ const refStyles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 3,
     backgroundColor: '#FFF3E0', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6,
   },
-  issueTagText:  { fontSize: 10, color: '#E65100', fontWeight: '600' },
+  issueTagText: { fontSize: 10, color: '#E65100', fontWeight: '600' },
   refreshBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     justifyContent: 'center', marginTop: 10, paddingVertical: 7,
@@ -665,19 +747,23 @@ const refStyles = StyleSheet.create({
 });
 
 const modalStyles = StyleSheet.create({
-  overlay:  { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)'},
-  sheet: {
-    flex: 1, backgroundColor: '#fff', borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-  },
+  // FIX 2 & 3: overlay menghitung insets.top di JSX
+  overlay: { flex: 1, backgroundColor: '#fff' },
+  sheet:   { flex: 1, backgroundColor: '#fff' },
+
   header: {
-    backgroundColor: '#1565C0', padding: 16,
-    flexDirection: 'row', alignItems: 'flex-start',
+    backgroundColor: '#1565C0',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
   },
-  headerLabel: { color: '#90CAF9', fontSize: 11, fontWeight: '700', letterSpacing: 1, marginBottom: 2 },
-  headerTitle: { color: '#fff', fontSize: 15, fontWeight: '800', flex: 1 },
-  closeBtn:    { padding: 4, marginLeft: 8 },
-  scroll:      { flex: 1 },
+  backBtn:     { padding: 4, marginTop: 2 },
+  headerLabel: { color: '#90CAF9', fontSize: 11, fontWeight: '700', letterSpacing: 1, marginBottom: 4 },
+  // FIX 3: flex:1 + flexShrink memastikan judul tidak overflow ke luar
+  headerTitle: { color: '#fff', fontSize: 15, fontWeight: '800', flex: 1, flexShrink: 1 },
+
+  scroll: { flex: 1 },
   infoRow: {
     flexDirection: 'row', flexWrap: 'wrap', gap: 8,
     padding: 14, borderBottomWidth: 1, borderBottomColor: '#EEF0F2',
@@ -688,6 +774,7 @@ const modalStyles = StyleSheet.create({
   },
   infoKey: { fontSize: 10, color: '#888', fontWeight: '600' },
   infoVal: { fontSize: 12, color: '#1565C0', fontWeight: '800', marginTop: 1 },
+
   section:      { padding: 14 },
   sectionTitle: { fontSize: 13, fontWeight: '700', color: '#444', marginBottom: 8, letterSpacing: 0.3 },
   problemCard: {
@@ -696,16 +783,20 @@ const modalStyles = StyleSheet.create({
   },
   problemCardOpen: { borderLeftColor: '#e53935', backgroundColor: '#FFF5F5' },
   problemHeader: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8,
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', marginBottom: 8,
   },
   problemNum:  { fontSize: 12, fontWeight: '700', color: '#1565C0' },
   statusPill:  { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   pillOpen:    { backgroundColor: '#FFEBEE' },
   pillClose:   { backgroundColor: '#E8F5E9' },
   statusText:  { fontSize: 10, fontWeight: '800' },
-  detailRow:   { flexDirection: 'row', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: '#eee' },
-  detailKey:   { fontSize: 12, color: '#888', width: 100 },
-  detailVal:   { fontSize: 12, color: '#222', fontWeight: '600', flex: 1 },
+  detailRow: {
+    flexDirection: 'row', paddingVertical: 4,
+    borderBottomWidth: 1, borderBottomColor: '#eee',
+  },
+  detailKey: { fontSize: 12, color: '#888', width: 100 },
+  detailVal: { fontSize: 12, color: '#222', fontWeight: '600', flex: 1 },
   noIssue:     { alignItems: 'center', paddingVertical: 30, gap: 8 },
   noIssueText: { color: '#aaa', fontSize: 13 },
 });

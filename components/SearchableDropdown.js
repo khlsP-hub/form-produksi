@@ -1,16 +1,53 @@
 // components/SearchableDropdown.js
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, Modal, FlatList,
-  StyleSheet, TextInput
+  StyleSheet, TextInput, KeyboardAvoidingView,
+  Platform, Keyboard, Animated,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
-export default function SearchableDropdown({ label, options = [], value, onChange, error, placeholder = 'Cari atau pilih...' }) {
-  const [visible, setVisible] = useState(false);
-  const [query, setQuery]     = useState('');
+export default function SearchableDropdown({
+  label,
+  options = [],
+  value,
+  onChange,
+  error,
+  placeholder = 'Cari atau pilih...',
+}) {
+  const [visible, setVisible]         = useState(false);
+  const [query, setQuery]             = useState('');
+  const [keyboardHeight, setKbHeight] = useState(0);
+  const insets                        = useSafeAreaInsets();
+  const listRef                       = useRef(null);
 
   const selected = options.find(o => o.value === value);
+
+  // ── Track keyboard height secara real-time ──
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => setKbHeight(e.endCoordinates.height)
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setKbHeight(0)
+    );
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, []);
+
+  // Scroll ke item terpilih saat modal dibuka
+  useEffect(() => {
+    if (visible && value && listRef.current) {
+      const idx = filtered.findIndex(o => o.value === value);
+      if (idx > 0) {
+        setTimeout(() => {
+          listRef.current?.scrollToIndex({ index: idx, animated: true, viewOffset: 8 });
+        }, 300);
+      }
+    }
+  }, [visible]);
 
   const filtered = useMemo(() => {
     if (!query.trim()) return options.filter(o => o.value !== '');
@@ -32,7 +69,25 @@ export default function SearchableDropdown({ label, options = [], value, onChang
     onChange(item.value);
     setVisible(false);
     setQuery('');
+    Keyboard.dismiss();
   };
+
+  const handleClose = () => {
+    setVisible(false);
+    setQuery('');
+    Keyboard.dismiss();
+  };
+
+  // ── Hitung tinggi modal: layar penuh dikurangi status bar atas ──
+  // Sisakan 56pt di atas supaya user tahu modal bisa di-dismiss
+  const MODAL_TOP_OFFSET  = 56;
+
+  // ── Padding bawah FlatList: navigation bar + keyboard ──
+  // Kalau keyboard muncul, gunakan keyboard height
+  // Kalau tidak, gunakan insets.bottom (navigation bar gesture)
+  const listBottomPad = keyboardHeight > 0
+    ? keyboardHeight - insets.bottom + 8   // keyboard sudah include inset di iOS
+    : insets.bottom + 8;
 
   return (
     <View style={styles.container}>
@@ -42,20 +97,53 @@ export default function SearchableDropdown({ label, options = [], value, onChang
         onPress={handleOpen}
         activeOpacity={0.7}
       >
-        <Text style={[styles.selectorText, !value && styles.placeholder]} numberOfLines={1}>
+        <Text
+          style={[styles.selectorText, !value && styles.placeholder]}
+          numberOfLines={1}
+        >
           {selected ? selected.label : placeholder}
         </Text>
         <Ionicons name="search" size={16} color="#1565C0" />
       </TouchableOpacity>
       {error && <Text style={styles.errorText}>{error}</Text>}
 
-      <Modal visible={visible} transparent animationType="slide">
-        <View style={styles.overlay}>
-          <View style={styles.modal}>
+      <Modal
+        visible={visible}
+        transparent
+        animationType="slide"
+        onRequestClose={handleClose}
+        statusBarTranslucent={false}
+      >
+        {/* Backdrop — tap untuk tutup */}
+        <TouchableOpacity
+          style={styles.backdrop}
+          activeOpacity={1}
+          onPress={handleClose}
+        />
+
+        {/* ── Modal sheet ── */}
+        {/* KeyboardAvoidingView hanya dipakai di iOS karena Android
+            sudah handle sendiri via windowSoftInputMode */}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.kavWrapper}
+          // keyboardVerticalOffset: tinggi header modal (tidak ada, jadi 0)
+        >
+          <View
+            style={[
+              styles.modal,
+              {
+                // Batasi tinggi agar tidak menutup status bar
+                maxHeight: `${100 - (MODAL_TOP_OFFSET / 8)}%`,
+                // Tambah padding bawah untuk navigation bar & keyboard (Android)
+                paddingBottom: Platform.OS === 'android' ? listBottomPad : 0,
+              },
+            ]}
+          >
             {/* Header */}
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{label || 'Pilih'}</Text>
-              <TouchableOpacity onPress={() => setVisible(false)} style={styles.closeBtn}>
+              <TouchableOpacity onPress={handleClose} style={styles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                 <Ionicons name="close" size={22} color="#fff" />
               </TouchableOpacity>
             </View>
@@ -71,24 +159,34 @@ export default function SearchableDropdown({ label, options = [], value, onChang
                 onChangeText={setQuery}
                 autoFocus
                 autoCapitalize="none"
+                returnKeyType="search"
               />
               {query.length > 0 && (
-                <TouchableOpacity onPress={() => setQuery('')}>
+                <TouchableOpacity onPress={() => setQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                   <Ionicons name="close-circle" size={18} color="#bbb" />
                 </TouchableOpacity>
               )}
             </View>
 
-            {/* Result Count */}
+            {/* Result count */}
             <Text style={styles.resultCount}>
               {filtered.length} item ditemukan
             </Text>
 
-            {/* List */}
+            {/* ── FlatList dengan padding bawah yang cukup ── */}
             <FlatList
+              ref={listRef}
               data={filtered}
               keyExtractor={(item) => item.value}
               keyboardShouldPersistTaps="handled"
+              onScrollToIndexFailed={() => {}}
+              // Padding bawah: cukup besar agar item terakhir tidak
+              // tertutup keyboard maupun navigation bar
+              contentContainerStyle={{
+                paddingBottom: Platform.OS === 'ios'
+                  ? insets.bottom + 24   // iOS: KAV handle keyboard, cukup inset
+                  : listBottomPad + 16,  // Android: manual pad
+              }}
               renderItem={({ item }) => {
                 const isSelected = item.value === value;
                 return (
@@ -109,7 +207,9 @@ export default function SearchableDropdown({ label, options = [], value, onChang
                         </View>
                       )}
                     </View>
-                    {isSelected && <Ionicons name="checkmark-circle" size={20} color="#1565C0" />}
+                    {isSelected && (
+                      <Ionicons name="checkmark-circle" size={20} color="#1565C0" />
+                    )}
                   </TouchableOpacity>
                 );
               }}
@@ -122,7 +222,7 @@ export default function SearchableDropdown({ label, options = [], value, onChang
               }
             />
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -141,17 +241,34 @@ const styles = StyleSheet.create({
   placeholder:  { color: '#aaa' },
   errorText:    { fontSize: 12, color: '#e53935', marginTop: 3 },
 
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
-  modal: {
-    backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20,
-    maxHeight: '85%', overflow: 'hidden',
+  // Backdrop terpisah dari modal sheet supaya tap-to-dismiss bekerja
+  backdrop: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.55)',
   },
+
+  // KAV membungkus sheet dan mendorong ke atas saat keyboard muncul (iOS)
+  kavWrapper: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+
+  modal: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    // Tidak pakai maxHeight persen — pakai flex biar KAV bisa kontrol ukuran
+    maxHeight: '90%',
+    overflow: 'hidden',
+  },
+
   modalHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     backgroundColor: '#1565C0', paddingHorizontal: 16, paddingVertical: 14,
   },
-  modalTitle:  { fontSize: 16, fontWeight: '700', color: '#fff', flex: 1 },
-  closeBtn:    { padding: 4 },
+  modalTitle: { fontSize: 16, fontWeight: '700', color: '#fff', flex: 1 },
+  closeBtn:   { padding: 4 },
 
   searchRow: {
     flexDirection: 'row', alignItems: 'center',
@@ -159,12 +276,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F6FB', borderRadius: 10,
     borderWidth: 1, borderColor: '#E0E8F5',
   },
-  searchIcon:   { marginRight: 8 },
-  searchInput:  { flex: 1, fontSize: 14, color: '#333', paddingVertical: 0 },
+  searchIcon:  { marginRight: 8 },
+  searchInput: { flex: 1, fontSize: 14, color: '#333', paddingVertical: 0 },
 
   resultCount: {
-    fontSize: 11, color: '#888', paddingHorizontal: 16,
-    marginBottom: 4, fontStyle: 'italic',
+    fontSize: 11, color: '#888',
+    paddingHorizontal: 16, marginBottom: 4, fontStyle: 'italic',
   },
 
   option: {
@@ -182,7 +299,7 @@ const styles = StyleSheet.create({
   },
   kodeText: { fontSize: 10, color: '#1565C0', fontWeight: '700', letterSpacing: 0.5 },
 
-  emptyBox:    { alignItems: 'center', paddingVertical: 40 },
-  emptyText:   { color: '#bbb', marginTop: 8, fontSize: 14, fontWeight: '600' },
-  emptySubText:{ color: '#ccc', fontSize: 12, marginTop: 4 },
+  emptyBox:     { alignItems: 'center', paddingVertical: 40 },
+  emptyText:    { color: '#bbb', marginTop: 8, fontSize: 14, fontWeight: '600' },
+  emptySubText: { color: '#ccc', fontSize: 12, marginTop: 4 },
 });
