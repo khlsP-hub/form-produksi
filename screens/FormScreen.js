@@ -206,44 +206,44 @@ function ShiftDetailModal({ visible, item, onClose }) {
 }
 
 // ─── Komponen: Panel referensi shift sebelumnya ───────────────────────────────
-function ShiftReferencePanel({ activeShift, tanggal, bagianProduksi }) {
-  const [refData,   setRefData]   = useState({});
-  const [loading,   setLoading]   = useState(false);
-  const [expanded,  setExpanded]  = useState(null);
-  const [modalItem, setModalItem] = useState(null);
+function ShiftReferencePanel({ activeShift, tanggal, bagianProduksi, namaProduk }) {
+  const [refData,        setRefData]        = useState({});
+  const [loading,        setLoading]        = useState(false);
+  const [expanded,       setExpanded]       = useState(null);
+  const [modalItem,      setModalItem]      = useState(null);
 
   const refs = SHIFT_REFS[activeShift] || [];
 
-  useEffect(() => {
-    if (refs.length === 0) return;
-    setRefData({});
-    fetchRefs();
-  }, [activeShift, tanggal, bagianProduksi]);
+useEffect(() => {
+  if (refs.length === 0) return;
+  setRefData({});
+  fetchRefs();
+}, [activeShift, tanggal, bagianProduksi, namaProduk]);
 
   const fetchRefs = async () => {
-    setLoading(true);
-    const todayDate     = tanggal || todayStr();
-    const yesterdayDate = getYesterdayOf(todayDate);
-    const result        = {};
+  setLoading(true);
+  const todayDate     = tanggal || todayStr();
+  const yesterdayDate = getYesterdayOf(todayDate);
+  const result        = {};
 
-    for (const ref of refs) {
-      const tanggalQuery = ref.tanggal === 'today' ? todayDate : yesterdayDate;
-      try {
-        let q;
-        if (bagianProduksi) {
-          q = query(
-            collection(db, 'form_produksi'),
-            where('tanggal', '==', tanggalQuery),
-            where('bagianProduksi', '==', bagianProduksi),
-            limit(20)
-          );
-        } else {
-          q = query(
-            collection(db, 'form_produksi'),
-            where('tanggal', '==', tanggalQuery),
-            limit(20)
-          );
-        }
+  for (const ref of refs) {
+    const tanggalQuery = ref.tanggal === 'today' ? todayDate : yesterdayDate;
+    try {
+      let q;
+      if (bagianProduksi) {
+        q = query(
+          collection(db, 'form_produksi'),
+          where('tanggal',        '==', tanggalQuery),
+          where('bagianProduksi', '==', bagianProduksi),
+          limit(50)
+        );
+      } else {
+        q = query(
+          collection(db, 'form_produksi'),
+          where('tanggal', '==', tanggalQuery),
+          limit(50)
+        );
+      }
         const snap = await getDocs(q);
         const docs = snap.docs
           .map(d => ({ id: d.id, ...d.data() }))
@@ -254,9 +254,11 @@ function ShiftReferencePanel({ activeShift, tanggal, bagianProduksi }) {
           })
           .slice(0, 10)
           .filter(d => {
-            const s = d[ref.shift];
-            return s && (s.output || s.karu || (s.rows && s.rows.some(r => r.permasalahan)));
-          });
+          const s = d[ref.shift];
+          if (!s || (!s.output && !s.karu && !(s.rows && s.rows.some(r => r.permasalahan)))) return false;
+          if (namaProduk && d.namaProduk !== namaProduk) return false;
+          return true;
+        });
         result[`${ref.shift}_${ref.tanggal}`] = { ref, docs, tanggal: tanggalQuery };
       } catch (e) {
         result[`${ref.shift}_${ref.tanggal}`] = { ref, docs: [], tanggal: tanggalQuery, error: true };
@@ -299,8 +301,10 @@ function ShiftReferencePanel({ activeShift, tanggal, bagianProduksi }) {
                 </View>
                 {data && (
                   <Text style={refStyles.refDateInfo}>
-                    📅 {data.tanggal}{bagianProduksi ? `  ·  ${bagianProduksi}` : ''}
-                  </Text>
+                   📅 {data.tanggal}
+                    {bagianProduksi ? `  ·  ${bagianProduksi}` : ''}
+                    {namaProduk ? `  ·  ${namaProduk}` : ''}
+               </Text>
                 )}
                 {!data && loading && <Text style={refStyles.refEmpty}>Memuat...</Text>}
                 {data?.error && <Text style={refStyles.refEmpty}>Gagal memuat data</Text>}
@@ -565,10 +569,11 @@ export default function FormScreen() {
           </View>
 
           <ShiftReferencePanel
-            activeShift={activeShift}
-            tanggal={form.tanggal}
-            bagianProduksi={form.bagianProduksi}
-          />
+          activeShift={activeShift}
+          tanggal={form.tanggal}
+          bagianProduksi={form.bagianProduksi}
+          namaProduk={form.namaProduk}
+        />
 
           {/* Shift Tabs */}
           <View style={styles.tabContainer}>

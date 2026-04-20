@@ -62,14 +62,14 @@ export function serializeDowntime(from, to) {
 // ─── Scroll-based Time Picker ─────────────────────────────────────────────────
 function TimeScrollPicker({ value, onChange, label }) {
   const hours   = Array.from({ length: 24 }, (_, i) => i);
-  const minutes = Array.from({ length: 12 }, (_, i) => i * 5); // 0,5,10,...,55
+  const minutes = Array.from({ length: 60 }, (_, i) => i); // 0,1,2,...,59
 
   const [h, m] = value
     ? value.split(':').map(Number)
     : [7, 0];
 
   const selectedH = isNaN(h) ? 7 : h;
-  const selectedM = isNaN(m) ? 0 : Math.round(m / 5) * 5; // snap ke 5 menit
+  const selectedM = isNaN(m) ? 0 : m;
 
   const ITEM_H = 40;
 

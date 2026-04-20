@@ -53,12 +53,32 @@ const parseNum = (s) => {
   if (!s && s !== 0) return 0;
   const str = String(s).trim();
   if (!str) return 0;
+
   if (str.includes(',')) {
     return parseFloat(str.replace(/\./g, '').replace(',', '.')) || 0;
   }
+
+  const dotCount = (str.match(/\./g) || []).length;
+
+  if (dotCount > 1) {
+    return parseFloat(str.replace(/\./g, '')) || 0;
+  }
+
+  if (dotCount === 1) {
+    const afterDot = str.split('.')[1];
+    if (afterDot && afterDot.length === 3) {
+      return parseFloat(str.replace(/\./g, '')) || 0;
+    }
+    return parseFloat(str) || 0;
+  }
+
   return parseFloat(str) || 0;
 };
-const shiftTotalReject = (shift) => (shift?.rows||[]).reduce((sum,r)=>sum+parseNum(r.totalRejectRaw??r.totalReject),0);
+const shiftTotalReject = (shift) =>
+  (shift?.rows || []).reduce(
+    (sum, r) => sum + parseNum(r.totalRejectRaw ?? r.totalReject),
+    0
+  );
 const isShiftFilled = (shift) => {
   if (!shift) return false;
   if (parseNum(shift.output)>0) return true;
@@ -67,26 +87,38 @@ const isShiftFilled = (shift) => {
 };
 const getShiftValue = (shift, beratStr) => {
   if (!isShiftFilled(shift)) return null;
-
+ 
   const reject = shiftTotalReject(shift);
-  const output = parseNum(shift.outputRaw ?? shift.output);
-  const berat  = parseNum(beratStr);
-
-  // konversi output ke KG
+ 
+  // Prioritaskan outputRaw (angka murni) → fallback ke output (string)
+  const outputRaw = shift.outputRaw;
+  const output = outputRaw !== undefined && outputRaw !== null && outputRaw !== ''
+    ? parseNum(outputRaw)
+    : parseNum(shift.output);
+ 
+  const berat = parseNum(beratStr);
+ 
   if (output > 0 && berat > 0) {
     const outputKg = (output * berat) / 1000;
-
-    const total = reject + outputKg;
+    const total    = reject + outputKg;
+ 
     if (total === 0) return { value: 0, isPct: true };
-
+ 
+    // Sanity check: reject tidak mungkin > total produksi + reject
+    // Kalau hasilnya > 100% berarti ada masalah data, tampilkan apa adanya tapi tandai
+    const pct = (reject / total) * 100;
     return {
-      value: (reject / total) * 100,
-      isPct: true
+      value:  pct,
+      isPct:  true,
+      reject: reject,
+      outputKg,
+      total,
     };
   }
-
+ 
+  // Kalau output atau berat tidak tersedia, tampilkan KG saja
   return { value: reject, isPct: false };
-};
+}
 const getOverallTrend = (vals) => {
   const v=vals.filter(x=>x!==null);
   if (v.length<2) return null;
@@ -128,7 +160,8 @@ function buildAsistenData(docs, namaAsisten) {
     const myReject=myRows.reduce((sum,r)=>sum+parseNum(r.totalRejectRaw??r.totalReject),0);
     const output=parseNum(shift.outputRaw??shift.output), berat=parseNum(doc.berat);
     const outKg=(output>0&&berat>0)?(output*berat)/1000:0;
-    const rejectPct=outKg>0?(myReject/outKg)*100:null;
+    const total = myReject + outKg;
+    const rejectPct = total > 0 ? (myReject / total) * 100 : null;
     points.push({tanggal:doc.tanggal,normTgl:normDate(doc.tanggal),shiftNum:n,noMesin:doc.noMesin||'-',kodeProduk:doc.namaProduk||doc.kodeProduk||'-',berat:doc.berat,output,outKg,rejectKg:myReject,rejectPct,rows:myRows,hasOpen:myRows.some(r=>r.status==='open'),karu:shift.karu});
   }));
   return points.sort((a,b)=>{const ta=parseDate(a.tanggal).getTime(),tb=parseDate(b.tanggal).getTime();return ta!==tb?ta-tb:a.shiftNum-b.shiftNum;});

@@ -593,46 +593,105 @@ export default function HistoryScreen() {
     }
   };
 
+  // Cek apakah shift terisi (punya data output, karu, atau rows)
+const isShiftFilledCard = (shift) => {
+  if (!shift) return false;
+  if (shift.output?.toString().trim()) return true;
+  if (shift.karu?.trim()) return true;
+  return (shift.rows || []).some(
+    r => r.permasalahan || r.downtime || r.penanganan || parseFloat(r.totalReject) > 0
+  );
+};
+ 
+// Dapatkan status tiap shift: [{num:1, hasOpen:true}, {num:2, hasOpen:false}, ...]
+const getShiftStatuses = (item) => {
+  return [1, 2, 3].map(n => {
+    const shift = item[`shift${n}`];
+    if (!isShiftFilledCard(shift)) return null;
+    const hasOpen = (shift.rows || []).some(r => r.status === 'open');
+    return { num: n, hasOpen };
+  }).filter(Boolean);
+};
+
   const renderItem = ({item}) => {
-    const totalRejects=[item.shift1,item.shift2,item.shift3].flatMap(s=>s?.rows||[]).reduce((sum,r)=>{
-      const val=String(r.totalReject||0).trim();
-      const num=val.includes(',')?parseFloat(val.replace(/\./g,'').replace(',','.')):parseFloat(val);
-      return sum+(num||0);
-    },0);
-    const hasOpenIssues=[item.shift1,item.shift2,item.shift3].flatMap(s=>s?.rows||[]).some(r=>r.status==='open');
-    const clr=bagianColor(item.bagianProduksi);
+    const totalRejects = [item.shift1, item.shift2, item.shift3]
+      .flatMap(s => s?.rows || [])
+      .reduce((sum, r) => {
+        const val = String(r.totalReject || 0).trim();
+        const num = val.includes(',')
+          ? parseFloat(val.replace(/\./g, '').replace(',', '.'))
+          : parseFloat(val);
+        return sum + (num || 0);
+      }, 0);
+ 
+    // Info status per shift yang terisi
+    const shiftStatuses = getShiftStatuses(item);
+ 
+    const clr = bagianColor(item.bagianProduksi);
+ 
     return (
-      <TouchableOpacity style={styles.card} onPress={()=>setSelected(item)} activeOpacity={0.85}>
+      <TouchableOpacity style={styles.card} onPress={() => setSelected(item)} activeOpacity={0.85}>
         <View style={styles.cardTop}>
           <View style={styles.cardTopLeft}>
-            <View style={[styles.bagianTag,{backgroundColor:clr.bg}]}>
-              <Text style={[styles.bagianTagText,{color:clr.text}]}>{item.bagianProduksi||'-'}</Text>
+            <View style={[styles.bagianTag, {backgroundColor: clr.bg}]}>
+              <Text style={[styles.bagianTagText, {color: clr.text}]}>{item.bagianProduksi || '-'}</Text>
             </View>
-            <Text style={styles.cardProduk} numberOfLines={2}>{item.namaProduk||'-'}</Text>
-            <Text style={styles.cardMeta}>{item.tanggal}  ·  {item.noMesin||'-'}</Text>
-            {!!item.kodeProduk&&(
+            <Text style={styles.cardProduk} numberOfLines={2}>{item.namaProduk || '-'}</Text>
+            <Text style={styles.cardMeta}>{item.tanggal}  ·  {item.noMesin || '-'}</Text>
+            {!!item.kodeProduk && (
               <View style={styles.kodeRow}>
                 <Ionicons name="barcode-outline" size={11} color="#888"/>
                 <Text style={styles.kodeProduk}>{item.kodeProduk}</Text>
               </View>
             )}
           </View>
-          <View style={[styles.badge,hasOpenIssues?styles.badgeOpen:styles.badgeClose]}>
-            <Ionicons name={hasOpenIssues?'alert-circle':'checkmark-circle'} size={12} color={hasOpenIssues?'#e53935':'#2e7d32'}/>
-            <Text style={[styles.badgeText,{color:hasOpenIssues?'#e53935':'#2e7d32'}]}>{hasOpenIssues?'OPEN':'CLOSE'}</Text>
+ 
+          {/* Badge per shift — S1 OPEN, S2 CLOSE, dll */}
+          <View style={styles.shiftBadgesCol}>
+            {shiftStatuses.length === 0 ? (
+              <View style={[styles.shiftBadgeRow, styles.badgeClose]}>
+                <Text style={[styles.badgeText, {color:'#2e7d32'}]}>CLOSE</Text>
+              </View>
+            ) : (
+              shiftStatuses.map(({ num, hasOpen }) => (
+                <View
+                  key={num}
+                  style={[styles.shiftBadgeRow, hasOpen ? styles.badgeOpen : styles.badgeClose]}
+                >
+                  <View style={[
+                    styles.shiftNumPill,
+                    {backgroundColor: hasOpen ? '#ffcdd2' : '#c8e6c9'}
+                  ]}>
+                    <Text style={[
+                      styles.shiftNumPillTxt,
+                      {color: hasOpen ? '#c62828' : '#2e7d32'}
+                    ]}>S{num}</Text>
+                  </View>
+                  <Ionicons
+                    name={hasOpen ? 'alert-circle' : 'checkmark-circle'}
+                    size={11}
+                    color={hasOpen ? '#e53935' : '#2e7d32'}
+                  />
+                  <Text style={[styles.badgeText, {color: hasOpen ? '#e53935' : '#2e7d32'}]}>
+                    {hasOpen ? 'OPEN' : 'CLOSE'}
+                  </Text>
+                </View>
+              ))
+            )}
           </View>
         </View>
+ 
         <View style={styles.cardFooter}>
           <View style={styles.stat}>
             <Ionicons name="warning-outline" size={13} color="#e53935"/>
             <Text style={styles.statText}>Reject: {totalRejects.toFixed(2)} KG</Text>
           </View>
           <View style={styles.actionRow}>
-            <TouchableOpacity style={styles.editBtn} onPress={()=>setEditing(item)} hitSlop={{top:8,bottom:8,left:8,right:8}}>
+            <TouchableOpacity style={styles.editBtn} onPress={() => setEditing(item)} hitSlop={{top:8,bottom:8,left:8,right:8}}>
               <Ionicons name="create-outline" size={15} color="#1565C0"/>
               <Text style={styles.editTxt}>Edit</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.deleteBtn} onPress={()=>handleDelete(item.id)} hitSlop={{top:8,bottom:8,left:8,right:8}}>
+            <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDelete(item.id)} hitSlop={{top:8,bottom:8,left:8,right:8}}>
               <Ionicons name="trash-outline" size={15} color="#e53935"/>
               <Text style={styles.deleteTxt}>Hapus</Text>
             </TouchableOpacity>
@@ -764,6 +823,42 @@ const styles = StyleSheet.create({
   headerCount:  {color:'#90CAF9', fontSize:12, marginTop:2},
   headerActions:{flexDirection:'row', alignItems:'center', gap:10},
   headerIcon:   {backgroundColor:'rgba(255,255,255,0.15)', padding:8, borderRadius:10},
+
+  // UBAH cardTop (tambah gap:8) dan cardTopLeft (hapus marginRight):
+  cardTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    gap: 8,                // ← TAMBAH ini
+  },
+  cardTopLeft: {
+    flex: 1,
+    // hapus: marginRight: 10  ← hapus baris ini kalau ada
+  },
+ 
+// TAMBAH 4 key baru berikut ke dalam objek styles (di mana saja, misal setelah kodeProduk):
+  shiftBadgesCol: {
+    alignItems: 'flex-end',
+    gap: 5,
+    flexShrink: 0,
+  },
+  shiftBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  shiftNumPill: {
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  shiftNumPillTxt: {
+    fontSize: 9,
+    fontWeight: '800',
+  },
 
   // Filter button
   filterBtn: {
