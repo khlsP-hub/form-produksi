@@ -594,6 +594,7 @@ export default function FormScreen() {
               shiftNumber={1} data={form.shift1}
               onChange={v => setForm(p => ({ ...p, shift1: v }))}
               karuList={karuList} asistenList={asistenList}
+              beratProduk={form.berat}
             />
           )}
           {activeShift === 2 && (
@@ -601,6 +602,7 @@ export default function FormScreen() {
               shiftNumber={2} data={form.shift2}
               onChange={v => setForm(p => ({ ...p, shift2: v }))}
               karuList={karuList} asistenList={asistenList}
+              beratProduk={form.berat}
             />
           )}
           {activeShift === 3 && (
@@ -608,6 +610,7 @@ export default function FormScreen() {
               shiftNumber={3} data={form.shift3}
               onChange={v => setForm(p => ({ ...p, shift3: v }))}
               karuList={karuList} asistenList={asistenList}
+              beratProduk={form.berat}
             />
           )}
 

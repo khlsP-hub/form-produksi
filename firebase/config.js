@@ -1,7 +1,3 @@
-// firebase/config.js
-// ⚠️ GANTI dengan konfigurasi Firebase project kamu sendiri
-// Cara dapat config: Firebase Console → Project Settings → Your Apps → Web App
-
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 

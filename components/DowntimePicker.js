@@ -4,6 +4,7 @@ import {
   View, Text, TouchableOpacity, Modal, StyleSheet,
   ScrollView, Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -137,6 +138,7 @@ function TimeScrollPicker({ value, onChange, label }) {
  *   error    : string (opsional)
  */
 export default function DowntimePicker({ value, onChange, label = 'Downtime', error }) {
+  const insets = useSafeAreaInsets();
   const [visible, setVisible] = useState(false);
 
   const { from: initFrom, to: initTo } = useMemo(() => parseDowntime(value), [value]);
@@ -218,7 +220,14 @@ export default function DowntimePicker({ value, onChange, label = 'Downtime', er
         <View style={dp.overlay}>
           <TouchableOpacity style={dp.backdrop} activeOpacity={1} onPress={() => setVisible(false)} />
 
-          <View style={dp.sheet}>
+          <View
+            style={[
+              dp.sheet,
+              {
+                paddingBottom: Math.max(insets.bottom, 16),
+              },
+            ]}
+          >
             {/* Header */}
             <View style={dp.sheetHeader}>
               <View style={dp.sheetHeaderLeft}>
@@ -318,7 +327,16 @@ const dp = StyleSheet.create({
   sheet: {
     backgroundColor: '#fff',
     borderTopLeftRadius: 20, borderTopRightRadius: 20,
-    paddingBottom: Platform.OS === 'ios' ? 32 : 16,
+    sheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    elevation: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+  },
     elevation: 20,
     shadowColor: '#000', shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.15, shadowRadius: 12,

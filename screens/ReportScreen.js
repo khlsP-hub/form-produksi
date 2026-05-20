@@ -1,5 +1,6 @@
 // screens/ReportScreen.js
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, RefreshControl, Modal, TextInput, FlatList, Alert
@@ -75,10 +76,19 @@ const parseNum = (s) => {
   return parseFloat(str) || 0;
 };
 const shiftTotalReject = (shift) =>
-  (shift?.rows || []).reduce(
-    (sum, r) => sum + parseNum(r.totalRejectRaw ?? r.totalReject),
-    0
-  );
+  (shift?.rows || []).reduce((sum, r) => {
+
+    // 🔥 kalau input PCS
+    if (r.rejectMode === 'pcs') {
+      return sum + parseNum(r.estimasiRejectKg || 0);
+    }
+
+    // 🔥 kalau input KG
+    return sum + parseNum(
+      r.totalRejectRaw ?? r.totalReject
+    );
+
+  }, 0);
 const isShiftFilled = (shift) => {
   if (!shift) return false;
   if (parseNum(shift.output)>0) return true;
@@ -1191,6 +1201,7 @@ const MODES=[{key:'harian',label:'Hari Ini'},{key:'mingguan',label:'Minggu Ini'}
 const REPORT_TYPES=[{id:1,label:'Trend Shift',icon:'trending-up'},{id:2,label:'Reject ≥3%',icon:'warning'},{id:3,label:'Perbandingan',icon:'people'}];
 
 export default function ReportScreen() {
+  const insets = useSafeAreaInsets();
   const [activeReport, setActiveReport] = useState(1);
   const [mode,         setMode]         = useState('tahunan');
   const [docs,         setDocs]         = useState([]);
@@ -1352,18 +1363,33 @@ export default function ReportScreen() {
     <View style={s.container}>
 
       {/* Header */}
-      <View style={s.header}>
-        <View style={s.headerBadge}>
-          <Ionicons name="bar-chart" size={12} color="#90CAF9"/>
-          <Text style={s.headerBadgeTxt}>LAPORAN ANALISIS</Text>
-        </View>
-        <Text style={s.headerTitle}>{REPORT_TYPES.find(r => r.id === activeReport)?.label || 'Laporan'}</Text>
-        {lastFetch && activeReport <= 2 && (
-          <Text style={s.headerSub}>
-            Diperbarui {lastFetch.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
-          </Text>
-        )}
-      </View>
+<View
+  style={[
+    s.header,
+    {
+      paddingTop: insets.top + 10,
+    },
+  ]}
+>
+  <View style={s.headerBadge}>
+    <Ionicons name="bar-chart" size={12} color="#90CAF9"/>
+    <Text style={s.headerBadgeTxt}>LAPORAN ANALISIS</Text>
+  </View>
+
+  <Text style={s.headerTitle}>
+    {REPORT_TYPES.find(r => r.id === activeReport)?.label || 'Laporan'}
+  </Text>
+
+  {lastFetch && activeReport <= 2 && (
+    <Text style={s.headerSub}>
+      Diperbarui{' '}
+      {lastFetch.toLocaleTimeString('id-ID', {
+        hour: '2-digit',
+        minute: '2-digit',
+      })}
+    </Text>
+  )}
+</View>
 
       {/* Tab tipe laporan */}
       <View style={s.reportBar}>

@@ -8,9 +8,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { View, Text, Animated } from 'react-native';
 import * as Updates from 'expo-updates';
 
+import MoreScreen from './screens/MoreScreen';
 import FormScreen    from './screens/FormScreen';
 import HistoryScreen from './screens/HistoryScreen';
 import ReportScreen  from './screens/ReportScreen';
+import ForceUpdateModal from './components/ForceUpdateModal';
 
 const Tab = createBottomTabNavigator();
 
@@ -46,6 +48,16 @@ function AppNavigator() {
         <Tab.Screen name="Input Form" component={FormScreen}    />
         <Tab.Screen name="Riwayat"    component={HistoryScreen} />
         <Tab.Screen name="Laporan"    component={ReportScreen}  />
+        <Tab.Screen
+  name="More"
+  component={MoreScreen}
+  options={{
+    tabBarLabel: 'Lainnya',
+    tabBarIcon: ({ color, size }) => (
+      <Ionicons name="ellipsis-horizontal-circle-outline" size={size} color={color} />
+    ),
+  }}
+/>
       </Tab.Navigator>
     </NavigationContainer>
   );
@@ -133,7 +145,7 @@ export default function App() {
           </Text>
         </Animated.View>
       )}
-
+      <ForceUpdateModal />
     </SafeAreaProvider>
   );
 }

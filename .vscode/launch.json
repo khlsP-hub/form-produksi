@@ -1,0 +1,12 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Expo Android",
+      "request": "launch",
+      "type": "reactnative",
+      "platform": "android",
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

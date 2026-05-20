@@ -8,7 +8,7 @@ import { STATUS_OPTIONS, createEmptyShiftRow, formatAngka, unformatAngka } from 
 import SearchableDropdown from './SearchableDropdown';
 import DowntimePicker from './DowntimePicker';
 
-export default function ShiftSection({ shiftNumber, data, onChange, karuList = [], asistenList = [] }) {
+export default function ShiftSection({ shiftNumber, data, onChange, karuList = [], asistenList = [], beratProduk = 0 }) {
 
   const updateField = (field, value) => onChange({ ...data, [field]: value });
 
@@ -26,11 +26,60 @@ export default function ShiftSection({ shiftNumber, data, onChange, karuList = [
 
   // Total Reject — format titik ribuan
   const handleTotalRejectChange = (index, text) => {
-    const formatted = formatAngka(text);
-    const rows = [...data.rows];
-    rows[index] = { ...rows[index], totalReject: formatted, totalRejectRaw: unformatAngka(formatted) };
-    onChange({ ...data, rows });
+
+  const formatted = formatAngka(text);
+
+  const gram = parseFloat(
+    String(beratProduk || '0')
+      .replace(',', '.')
+  );
+
+  const value = parseFloat(
+    String(text || '0')
+      .replace(',', '.')
+  );
+
+  const rows = [...data.rows];
+
+  const mode = rows[index]?.rejectMode || 'kg';
+
+  let estimasiRejectPcs = 0;
+  let estimasiRejectKg = 0;
+
+  // 🔥 MODE KG
+  if (mode === 'kg') {
+
+    estimasiRejectPcs =
+      gram && value
+        ? Math.round((value * 1000) / gram)
+        : 0;
+
+    estimasiRejectKg = value || 0;
+  }
+
+  // 🔥 MODE PCS
+  else {
+
+    estimasiRejectKg =
+      gram && value
+        ? ((value * gram) / 1000)
+        : 0;
+
+    estimasiRejectPcs = value || 0;
+  }
+
+  rows[index] = {
+    ...rows[index],
+
+    totalReject: formatted,
+    totalRejectRaw: unformatAngka(formatted),
+
+    estimasiRejectPcs,
+    estimasiRejectKg,
   };
+
+  onChange({ ...data, rows });
+};
 
   const addRow = () => onChange({ ...data, rows: [...data.rows, createEmptyShiftRow()] });
 
@@ -115,7 +164,7 @@ export default function ShiftSection({ shiftNumber, data, onChange, karuList = [
 
             {/* Downtime */}
             <DowntimePicker
-             label="Downtime"
+             label="Downtime (jika ada)"
               value={row.downtime}
               onChange={(val) => updateRow(index, 'downtime', val)}
             />
@@ -130,14 +179,92 @@ export default function ShiftSection({ shiftNumber, data, onChange, karuList = [
               numberOfLines={3}
             />
 
+            {/* 🔥 SWITCH KG / PCS */}
+<View style={{
+  flexDirection: 'row',
+  marginBottom: 10,
+  gap: 8,
+}}>
+
+  {['kg', 'pcs'].map(mode => {
+
+    const active =
+      (row.rejectMode || 'kg') === mode;
+
+    return (
+      <TouchableOpacity
+        key={mode}
+        onPress={() => {
+
+          const rows = [...data.rows];
+
+          rows[index] = {
+            ...rows[index],
+            rejectMode: mode,
+            totalReject: '',
+            totalRejectRaw: '',
+            estimasiRejectPcs: 0,
+            estimasiRejectKg: 0,
+          };
+
+          onChange({ ...data, rows });
+        }}
+        style={{
+          flex: 1,
+          paddingVertical: 8,
+          borderRadius: 8,
+          backgroundColor: active
+            ? '#1565C0'
+            : '#EEF4FF',
+          alignItems: 'center',
+        }}
+      >
+        <Text style={{
+          color: active ? '#fff' : '#1565C0',
+          fontWeight: '700',
+          fontSize: 12,
+        }}>
+          {mode.toUpperCase()}
+        </Text>
+      </TouchableOpacity>
+    );
+  })}
+</View>
+
             {/* Total Reject */}
             <AppInput
-              label="Total Reject (KG)"
+              label={
+              row.rejectMode === 'pcs'
+                ? 'Total Reject (PCS)'
+                : 'Total Reject (KG)'
+            }
               value={row.totalReject}
               onChangeText={(text) => handleTotalRejectChange(index, text)}
               placeholder="Contoh: 1.500"
               keyboardType="numeric"
             />
+
+                        {/* 🔥 ESTIMASI */}
+            <View style={{ marginTop: -4, marginBottom: 8 }}>
+              <Text style={{
+                fontSize: 12,
+                color: '#666',
+                fontWeight: '600'
+              }}>
+
+                {row.rejectMode === 'kg'
+                  ? `Estimasi: ${Number(
+                      row.estimasiRejectPcs || 0
+                    ).toLocaleString('id-ID')} PCS`
+                  : `Estimasi: ${
+                      Number(
+                        row.estimasiRejectKg || 0
+                      ).toFixed(2)
+                    } KG`
+                }
+
+              </Text>
+            </View>
 
             {/* Penanganan */}
             <AppInput

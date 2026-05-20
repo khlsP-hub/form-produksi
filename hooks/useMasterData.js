@@ -9,7 +9,7 @@ const _cache = {};
 async function fetchCollection(colName, field, value) {
   const cacheKey = `${colName}__${field}__${value}`;
   if (_cache[cacheKey]) return _cache[cacheKey];
-
+  
   const q = query(collection(db, colName), where(field, '==', value));
   const snap = await getDocs(q);
   const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -30,81 +30,107 @@ export function useMasterData(bagian) {
   const prevBagian = useRef(null);
 
   useEffect(() => {
-    if (!bagian) {
-      setProdukList([]);
-      setMesinList([]);
-      setKaruList([]);
-      setAsistenList([]);
-      prevBagian.current = null;
-      return;
-    }
+  if (!bagian) {
+    setProdukList([]);
+    setMesinList([]);
+    setKaruList([]);
+    setAsistenList([]);
+    prevBagian.current = null;
+    return;
+  }
 
-    // Hindari fetch ulang kalau bagian sama
-    if (bagian === prevBagian.current) return;
-    prevBagian.current = bagian;
+  if (bagian === prevBagian.current) return;
+  prevBagian.current = bagian;
 
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
+  let cancelled = false;
+  setLoading(true);
+  setError(null);
 
-    Promise.all([
-      fetchCollection('master_produk', 'bagian', bagian),
-      fetchCollection('master_mesin', 'bagian', bagian),
-      fetchCollection('master_karyawan', 'bagian', bagian),
+  // ── Kalau bagian "PET" (data lama), gabung PET PF + PET SB ──
+  const bagianList = bagian === 'PET' ? ['PET PF', 'PET SB'] : [bagian];
+
+  Promise.all(
+    bagianList.flatMap(b => [
+      fetchCollection('master_produk',   'bagian', b),
+      fetchCollection('master_mesin',    'bagian', b),
+      fetchCollection('master_karyawan', 'bagian', b),
     ])
-      .then(([produkData, mesinData, karyawanData]) => {
-        if (cancelled) return;
+  )
+  .then((results) => {
+    if (cancelled) return;
 
-        // ─── Produk ───
-        const produk = produkData
-          .map(p => ({
-            value: p.docId || p.id,
-            label: p.nama,
-            kode:  p.kode,
-          }))
-          .sort((a, b) => a.label.localeCompare(b.label, 'id'));
+    // Gabung semua hasil per koleksi
+    // Urutan: [produk_b1, mesin_b1, karyawan_b1, produk_b2, mesin_b2, karyawan_b2, ...]
+    const produkData   = [];
+    const mesinData    = [];
+    const karyawanData = [];
 
-        // ─── Mesin ───
-        const mesin = mesinData
-          .map(m => ({
-            value: m.noMesin,
-            label: m.noMesin,
-          }))
-          .sort((a, b) => a.label.localeCompare(b.label, 'id'));
+    results.forEach((data, idx) => {
+      const mod = idx % 3;
+      if (mod === 0) produkData.push(...data);
+      if (mod === 1) mesinData.push(...data);
+      if (mod === 2) karyawanData.push(...data);
+    });
 
-        // ─── Karu ───
-        const karu = karyawanData
-          .filter(k => k.role === 'karu')
-          .map(k => ({
-            value: k.nama,
-            label: k.nama,
-          }))
-          .sort((a, b) => a.label.localeCompare(b.label, 'id'));
-
-        // ─── Asisten ───
-        const asisten = karyawanData
-          .filter(k => k.role === 'asisten')
-          .map(k => ({
-            value: k.nama,
-            label: k.nama,
-          }))
-          .sort((a, b) => a.label.localeCompare(b.label, 'id'));
-
-        setProdukList(produk);
-        setMesinList(mesin);
-        setKaruList(karu);
-        setAsistenList(asisten);
-        setLoading(false);
+    // ─── Produk (deduplikasi kode+nama) ───
+    const seenProduk = new Set();
+    const produk = produkData
+      .filter(p => {
+        const key = `${p.kode}__${p.nama}`;
+        if (seenProduk.has(key)) return false;
+        seenProduk.add(key);
+        return true;
       })
-      .catch(e => {
-        if (cancelled) return;
-        console.error('useMasterData error:', e);
-        setError(e.message);
-        setLoading(false);
-      });
+      .map(p => ({
+        value: p.docId || p.id,
+        label: p.nama,
+        kode:  p.kode,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'id'));
 
-    return () => { cancelled = true; };
-  }, [bagian]);
+    // ─── Mesin (deduplikasi) ───
+    const seenMesin = new Set();
+    const mesin = mesinData
+      .filter(m => {
+        if (seenMesin.has(m.noMesin)) return false;
+        seenMesin.add(m.noMesin);
+        return true;
+      })
+      .map(m => ({
+        value: m.noMesin,
+        label: m.noMesin,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'id'));
+
+    // ─── Karu (deduplikasi) ───
+    const seenKaru = new Set();
+    const karu = karyawanData
+      .filter(k => k.role === 'karu' && !seenKaru.has(k.nama) && seenKaru.add(k.nama))
+      .map(k => ({ value: k.nama, label: k.nama }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'id'));
+
+    // ─── Asisten (deduplikasi) ───
+    const seenAsisten = new Set();
+    const asisten = karyawanData
+      .filter(k => k.role === 'asisten' && !seenAsisten.has(k.nama) && seenAsisten.add(k.nama))
+      .map(k => ({ value: k.nama, label: k.nama }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'id'));
+
+    setProdukList(produk);
+    setMesinList(mesin);
+    setKaruList(karu);
+    setAsistenList(asisten);
+    setLoading(false);
+  })
+  .catch(e => {
+    if (cancelled) return;
+    console.error('useMasterData error:', e);
+    setError(e.message);
+    setLoading(false);
+  });
+
+  return () => { cancelled = true; };
+}, [bagian]);
 
   return {
     produkList,
